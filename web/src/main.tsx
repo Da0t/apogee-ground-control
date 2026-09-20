@@ -126,7 +126,7 @@ function Spark({
     .join(" ");
   return (
     <svg viewBox="0 0 200 50" className="spark" aria-label={`${field} history`}>
-      <path d="M0 44H200" stroke="#272c31" />
+      <path d="M0 44H200" stroke="#2b2b2b" />
       <polyline
         points={points}
         fill="none"
@@ -146,7 +146,7 @@ function Craft({ instrument }: { instrument: string }) {
     >
       <defs>
         <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-          <path d="M24 0H0V24" fill="none" stroke="#1b2027" strokeWidth=".5" />
+          <path d="M24 0H0V24" fill="none" stroke="#1f1f1f" strokeWidth=".5" />
         </pattern>
         <pattern
           id="cells"
@@ -159,14 +159,14 @@ function Craft({ instrument }: { instrument: string }) {
             height="22"
             x="1"
             y="1"
-            fill="#15282a"
-            stroke="#315353"
+            fill="#222222"
+            stroke="#4a4a4a"
             strokeWidth=".5"
           />
         </pattern>
         <linearGradient id="bus" x2="1" y2="1">
-          <stop stopColor="#343c42" />
-          <stop offset="1" stopColor="#11161a" />
+          <stop stopColor="#3b3b3b" />
+          <stop offset="1" stopColor="#151515" />
         </linearGradient>
       </defs>
       <rect width="680" height="320" fill="url(#grid)" />
@@ -176,12 +176,12 @@ function Craft({ instrument }: { instrument: string }) {
         rx="225"
         ry="96"
         fill="none"
-        stroke="#2c353b"
+        stroke="#343434"
         strokeDasharray="4 9"
       />
-      <path d="M90 167H590M340 30V285" stroke="#263238" strokeDasharray="3 7" />
+      <path d="M90 167H590M340 30V285" stroke="#303030" strokeDasharray="3 7" />
       <g transform="translate(340 165) rotate(-20)">
-        <path d="M-65 0H-90M65 0H90" stroke="#687777" strokeWidth="8" />
+        <path d="M-65 0H-90M65 0H90" stroke="#747474" strokeWidth="8" />
         <rect
           x="-244"
           y="-47"
@@ -189,7 +189,7 @@ function Craft({ instrument }: { instrument: string }) {
           height="94"
           rx="2"
           fill="url(#cells)"
-          stroke="#607b78"
+          stroke="#757575"
         />
         <rect
           x="90"
@@ -198,17 +198,17 @@ function Craft({ instrument }: { instrument: string }) {
           height="94"
           rx="2"
           fill="url(#cells)"
-          stroke="#607b78"
+          stroke="#757575"
         />
         <path
           d="M-62 -62H40L64 -39V62H-39L-62 39Z"
           fill="url(#bus)"
-          stroke="#71807e"
+          stroke="#7d7d7d"
         />
         <path
           d="M-62 -62L-39 -39H64M-39 -39V62M40 -62L64 -39"
           fill="none"
-          stroke="#89908a"
+          stroke="#8e8e8e"
         />
         <rect
           x="-21"
@@ -216,36 +216,36 @@ function Craft({ instrument }: { instrument: string }) {
           width="59"
           height="62"
           rx="4"
-          fill="#171d20"
-          stroke="#737c74"
+          fill="#1c1c1c"
+          stroke="#7a7a7a"
         />
         <circle
           cx="8"
           cy="10"
           r="20"
-          fill="#060c0e"
-          stroke="#677a78"
+          fill="#0b0b0b"
+          stroke="#767676"
           strokeWidth="3"
         />
         <circle
           cx="8"
           cy="10"
           r="11"
-          fill={instrument === "COLLECTING" ? "#a9ebc8" : "#163b3a"}
-          stroke="#64a598"
+          fill={instrument === "COLLECTING" ? "var(--accent)" : "#292929"}
+          stroke="#a3a3a3"
         />
         <path
           d="M-5 -62V-86M-29 -88Q-4 -112 21 -88Q-4 -69 -29 -88"
-          fill="#283639"
-          stroke="#849b92"
+          fill="#333333"
+          stroke="#959595"
         />
-        <circle cx="48" cy="38" r="3" fill="#b2f0c6" />
+        <circle cx="48" cy="38" r="3" fill="var(--accent)" />
       </g>
-      <g fill="#829397" fontFamily="monospace" fontSize="10">
+      <g fill="#909090" fontFamily="monospace" fontSize="10">
         <path
           d="M148 103L117 72H58M483 112L536 73H619M384 211L472 270H608"
           fill="none"
-          stroke="#4b5c60"
+          stroke="#595959"
         />
         <text x="58" y="63">
           EPS / SOLAR ARRAY
@@ -536,7 +536,7 @@ function App() {
                   <span>
                     <Wifi size={15} /> SPACECRAFT LINK
                   </span>
-                  <strong className={live ? "mint" : "amber"}>
+                  <strong className={live ? "accent-text" : "amber"}>
                     {!stream
                       ? "Unavailable"
                       : live
@@ -609,14 +609,16 @@ function App() {
                     <Craft instrument={t?.instrument || "OFF"} />
                     <div className="subsystems">
                       <div>
-                        <i className={fresh ? "green" : "yellow"} /> Flight
-                        computer{" "}
+                        <i className={fresh ? "active-indicator" : "yellow"} />{" "}
+                        Flight computer{" "}
                         <strong>{fresh ? "Reporting" : "Unknown"}</strong>
                       </div>
                       <div>
                         <i
                           className={
-                            t?.instrument === "COLLECTING" ? "green" : "gray"
+                            t?.instrument === "COLLECTING"
+                              ? "active-indicator"
+                              : "gray"
                           }
                         />{" "}
                         Instrument{" "}
@@ -735,7 +737,9 @@ function App() {
                                     ][i]}
                               </small>
                             </div>
-                            {done && <Check className="mint" size={15} />}
+                            {done && (
+                              <Check className="accent-text" size={15} />
+                            )}
                           </div>
                         );
                       })}

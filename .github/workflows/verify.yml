@@ -18,10 +18,19 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Validate optional AWS deployment without cloud credentials
+        run: |
+          python3 -m venv /tmp/apogee-aws-check
+          /tmp/apogee-aws-check/bin/pip install cfn-lint==1.50.0
+          /tmp/apogee-aws-check/bin/cfn-lint infra/aws/template.yaml
+          python3 -m unittest discover -s infra/aws/tests -v
+          bash -n infra/aws/runtime/install.sh
       - name: Unit and PostgreSQL integration tests
         run: ./mvnw -B verify
       - name: Build operator console and application
         run: ./scripts/build.sh
+      - name: Verify cloud database configuration against local TLS PostgreSQL
+        run: python3 infra/aws/tests/check_database_tls.py
       - name: Start demo services
         run: |
           ./scripts/compose.sh up -d --wait database

@@ -73,6 +73,8 @@ Details: [Architecture and decisions](docs/ARCHITECTURE.md), [Protocol](docs/PRO
 
 ## Development
 
+Optional cloud setup: [AWS deployment guide](infra/aws/README.md) describes private RDS PostgreSQL, a Java 21 host and authenticated console access through Session Manager. The deployment files are prepared and checked locally; no AWS resources have been provisioned or cloud behavior verified. Docker remains the default development setup.
+
 Local tools: JDK 21+, Node 22.12+ and Docker. Maven is provided by the wrapper. The container/CI build uses Java 21.
 
 ```sh

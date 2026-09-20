@@ -1,0 +1,23 @@
+[Unit]
+Description=Apogee ground control
+Wants=network-online.target apogee-simulator.service
+After=network-online.target apogee-simulator.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=apogee
+Group=apogee
+WorkingDirectory=/var/lib/apogee
+EnvironmentFile=/etc/apogee/ground.env
+ExecStartPre=+/usr/bin/python3 /opt/apogee/database.py
+ExecStart=/usr/bin/java -Xms128m -Xmx640m -jar /opt/apogee/current/apogee.jar
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

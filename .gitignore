@@ -8,3 +8,6 @@ data/
 .idea/
 test-results/
 *.tsbuildinfo
+__pycache__/
+*.pyc
+.venv/

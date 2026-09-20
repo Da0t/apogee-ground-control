@@ -1,0 +1,21 @@
+[Unit]
+Description=Apogee independent spacecraft simulator
+After=network-online.target
+
+[Service]
+Type=simple
+User=apogee
+Group=apogee
+WorkingDirectory=/var/lib/apogee
+Environment=SIMULATOR_BIND=127.0.0.1
+Environment=SIMULATOR_STATE=/var/lib/apogee/spacecraft.json
+ExecStart=/usr/bin/java -Xms32m -Xmx128m -jar /opt/apogee/current/apogee.jar --simulator
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

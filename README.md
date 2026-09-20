@@ -1,14 +1,14 @@
 # Apogee · Spacecraft Ground Control
 
-A Java ground-control simulator for publishing versioned procedures, scheduling them around simulated contact windows, monitoring spacecraft telemetry, and reconciling uncertain command outcomes.
+A Java ground-control simulator for planning procedures, commanding a simulated spacecraft, and verifying what happened when communication fails.
 
-**Requested ≠ accepted ≠ completed.** An acknowledgment can disappear after the spacecraft has executed an action. Apogee preserves that uncertainty, queries the spacecraft's durable command ledger, and lets the operator decide when to resume.
+**Requested ≠ accepted ≠ completed.** A spacecraft can finish an observation even when its completion acknowledgment never reaches the ground. Apogee records that uncertainty, queries the spacecraft's saved command history, and lets the operator resume with evidence.
 
-![Apogee mission console](docs/console.png)
+![Apogee mission console with live telemetry and command history](docs/console.png)
 
-## Run
+## Run locally
 
-Requirements: Docker with Compose. No cloud account, API key, or hardware is required. The first build downloads dependencies; the built application runs locally, including its fonts.
+Requires Docker with Compose. No cloud account, API key, or spacecraft hardware is needed.
 
 ```sh
 git clone https://github.com/Da0t/apogee-ground-control.git
@@ -16,125 +16,79 @@ cd apogee-ground-control
 ./scripts/compose.sh up --build -d
 ```
 
-Open **http://127.0.0.1:8081**. The existing mission scheduler, if running on 8080, is independent.
+Open [Apogee on localhost:8081](http://127.0.0.1:8081). The first build downloads dependencies; the built app serves its interface, fonts, and map outlines locally. Repository access is required to clone a private copy.
+
+On macOS with Colima, start Colima first. The helper supports both `docker compose` and Homebrew's `docker-compose`.
 
 ```sh
 ./scripts/compose.sh logs -f ground simulator
-./scripts/compose.sh stop       # preserves database and spacecraft ledger
+./scripts/compose.sh stop   # keeps the database and spacecraft ledger
 ./scripts/compose.sh start
 ```
 
-On macOS with Colima, run `colima start` first. `scripts/compose.sh` supports both `docker compose` and Homebrew's `docker-compose` command.
+## Try the recovery demo
 
-## The two-minute demo
+Start with continuous contact, no active or pending runs, and **Nominal conditions** applied.
 
-1. Wait for **Ground service live**, a connected spacecraft link, and fresh telemetry.
-2. Execute an observation. Power-on, collection, and power-off complete in approximately 12 seconds.
-3. Apply **Lost completion acknowledgment**, then execute another observation.
-4. The spacecraft stores the observation, but suppresses its final collection acknowledgment. After the 12-second verification window, the procedure pauses and the command becomes **UNKNOWN**.
-5. Click **Reconcile spacecraft state**. Apogee queries the simulator ledger; it does not repeat the observation.
-6. Click **Resume** to execute the remaining power-off step.
-7. Open **Run history**, inspect the event sequence, and export the run as JSON.
+1. On **Mission console**, select **Observation procedure · v1** and execute it. The three steps complete in roughly 12 seconds.
+2. Apply **Lost completion acknowledgment** and execute another observation.
+3. Wait for the collection command to become **UNKNOWN** and the procedure to pause.
+4. Click **Reconcile spacecraft state**, wait for the command to show **COMPLETED**, then click **Resume**.
+5. Open **Run history** to inspect the decisions and export the run.
 
-Apply **Nominal conditions** between experiments to clear faults and restore illustrative battery/storage values. This is a simulator control, not a flight command; it does not erase history or cancel in-flight commands. Replay is an inspection of recorded events, not a physics replay or re-execution.
+The observation is recorded once: reconciliation asks for the existing command's result. For the full walkthrough, contact-loss demo, and recovery controls, see the [operator guide](docs/OPERATING.md).
 
-Other scenarios: low battery, frozen telemetry, instrument rejection, and a 15-second connection interruption. To demonstrate process recovery, restart only the ground service during collection: `./scripts/compose.sh restart ground`. The simulator continues independently; recovered in-flight commands become UNKNOWN and require reconciliation.
+## Explore the workspace
 
-## Mission workspace
+| Page                               | What you can do                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Mission console** · `/console`   | Monitor telemetry, execute a saved procedure, inject failures, and reconcile uncertain outcomes.                         |
+| **Procedures** · `/procedures`     | Publish immutable versions with 2–8 typed steps, execution durations, verification timeouts, and telemetry requirements. |
+| **Contact planning** · `/contacts` | Rotate the globe, configure simulated communication windows, and schedule runs.                                          |
+| **Run history** · `/history`       | Replay recorded decisions and export the procedure definition, commands, and events.                                     |
 
-- **Mission Console** (`/console`): satellite schematic, live telemetry, execution controls and command evidence.
-- **Procedures** (`/procedures`): publish immutable definitions with 2–8 typed steps, collection durations, verification deadlines and telemetry guards. New runs can select a specific version; existing runs keep their snapshot.
-- **Contact Planning** (`/contacts`): rotate an offline globe, configure accelerated communication windows, schedule a procedure and inspect pending runs. The TCP connection closes outside enabled windows while the separate spacecraft continues executing.
-- **Run History** (`/history`): inspect execution evidence and export the complete saved procedure definition with the run.
+Each page supports direct loading, refresh, and browser navigation. [Preview contact planning](docs/contacts.png) or the [procedure editor](docs/procedures.png).
 
-All four URLs support direct loading, refresh and browser back/forward. The globe uses bundled [Natural Earth coastline data](web/NOTICE.md); spacecraft positions and station contact windows are synthetic. Latitude/longitude change the diagram, not a radio-visibility calculation. Continuous contact is the default.
-
-![Apogee contact planning and interactive globe](docs/contacts.png)
-
-For a contact-loss demonstration, save a procedure with a 10-second collection and a 12-second verification deadline. Configure a 30-second cycle with 8 seconds of contact beginning in 5 seconds, then schedule that saved version to start immediately. Its collection finishes during the blackout. Once contact returns, reconcile the UNKNOWN outcome and explicitly resume to power off. No command is automatically resent. Restore continuous contact when finished.
-
-## What is real and what is simulated?
-
-| Real software behavior | Illustrative model |
-| --- | --- |
-| Two independent Java processes exchanging framed messages over TCP | Battery starts at 82%; standby adds 0.04 percentage points/tick, active instrument uses 0.08/tick |
-| PostgreSQL transactions, schema migration, persisted run/command/event records | Collection takes 2–20 one-second ticks (six by default) and consumes 20 percentage points of storage |
-| Timeouts, disconnects, duplicate IDs, process restarts and status reconciliation | Instrument states OFF / READY / COLLECTING; no image pixels or physical payload |
-| React console receiving server-sent events | Solar panels and spacecraft drawing are an explanatory schematic |
-
-This is educational **ground software with a simulated spacecraft**, not flight software, real satellite telemetry, or a certified operating system. No CCSDS or XTCE compliance is claimed.
-
-## Architecture
+## How it fits together
 
 ```mermaid
 flowchart LR
-    UI[React / TypeScript console] -->|REST actions| G[Spring Boot ground service]
-    G -->|SSE state snapshots| UI
-    G <-->|Transactions| DB[(PostgreSQL)]
-    G <-->|TCP / JSON lines| SIM[Separate Java simulator]
-    SIM --> LEDGER[Atomic snapshot + command ledger]
+    UI[React / TypeScript console] -->|REST actions| G[Java / Spring Boot ground service]
+    G -->|SSE state updates| UI
+    G <-->|SQL transactions| DB[(PostgreSQL)]
+    G <-->|TCP / JSON messages| SIM[Separate Java spacecraft simulator]
+    SIM --> LEDGER[Persistent state and command ledger]
 ```
 
-- Java 21 target; Spring Boot 3.5.16; JDBC, Flyway and PostgreSQL 17.
-- React/TypeScript/Vite; all application and font assets served by Spring Boot.
-- A plain-Java domain engine accepts a clock, store and link interface. It does not depend on Spring.
-- The initial procedure has three commands; published definitions support 2–8 validated steps. One active run reserves the instrument, including while paused or aborting. Scheduled runs acquire that reservation only on activation.
-- Command intent and execution history are committed before a socket send. The network and database are not assumed to share a transaction.
-- Completed commands cannot regress when a late acceptance message arrives. UNKNOWN is not automatically retried.
+Docker runs three services: ground, simulator, and database. The browser runs React; Spring Boot serves the built frontend and API. Button actions use REST, and live browser updates use server-sent events (SSE).
 
-Details: [Architecture and decisions](docs/ARCHITECTURE.md), [Protocol](docs/PROTOCOL.md), [Requirements and verification](docs/VERIFICATION.md), [Learning guide](docs/LEARNING.md).
+**Stack:** Java 21, Spring Boot 3.5.16, JDBC, Flyway, PostgreSQL 17, React, TypeScript, Vite, Docker Compose, JUnit, Testcontainers, and Playwright.
 
-## Development
+## Documentation
 
-Optional cloud setup: [AWS deployment guide](infra/aws/README.md) describes private RDS PostgreSQL, a Java 21 host and authenticated console access through Session Manager. The deployment files are prepared and checked locally; no AWS resources have been provisioned or cloud behavior verified. Docker remains the default development setup.
+| Start here when you want to…                          | Guide                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| Understand the buttons and run a demonstration        | [Operate Apogee](docs/OPERATING.md)                     |
+| Trace a click through the code and learn the design   | [Code walkthrough and learning guide](docs/LEARNING.md) |
+| Review state, persistence, concurrency, and tradeoffs | [Architecture](docs/ARCHITECTURE.md)                    |
+| Look up HTTP endpoints and TCP messages               | [API and protocol reference](docs/PROTOCOL.md)          |
+| Build, run, and troubleshoot the project              | [Local development](docs/DEVELOPMENT.md)                |
+| Check requirements and test evidence                  | [Verification](docs/VERIFICATION.md)                    |
+| Review the optional cloud setup                       | [AWS deployment guide](infra/aws/README.md)             |
 
-Local tools: JDK 21+, Node 22.12+ and Docker. Maven is provided by the wrapper. The container/CI build uses Java 21.
+## Scope and verification
 
-```sh
-./scripts/compose.sh up -d database
-./scripts/build.sh
-# Separate terminals:
-java -jar target/apogee-0.1.0.jar --simulator
-java -jar target/apogee-0.1.0.jar
-```
+The TCP connection, database transactions, process separation, timeouts, and recovery behavior are real software. Battery, storage, instrument behavior, observations, and contact timing are illustrative models. Collection increments an observation count and saves completion evidence in the simulator ledger; it generates no image pixels.
 
-For frontend hot reload: `cd web && npm run dev` (API proxy to port 8081). Container and local simulator state are separate: a named Docker volume versus `data/spacecraft.json`.
+The globe uses bundled [Natural Earth outlines](web/NOTICE.md) and a synthetic surface track. Contact windows are configured by time; station coordinates do not calculate radio visibility. This project makes no orbital-accuracy, flight-software, or CCSDS/XTCE compliance claim.
 
-```sh
-./mvnw verify                  # includes real PostgreSQL Testcontainers tests
-cd web
-npm ci
-npx playwright install chromium
-npm run test:e2e               # requires a running stack with no active procedure
-```
+The suite contains **32 Java tests and six browser scenarios**. [GitHub Actions](https://github.com/Da0t/apogee-ground-control/actions/workflows/verify.yml) provides results for each commit. See [verification](docs/VERIFICATION.md) for coverage and [architecture limits](docs/ARCHITECTURE.md#limits) for the current boundaries.
 
-To exercise a forced backend crash against the Docker Compose stack, run `python3 scripts/check-restart.py` from the project root. It creates an observation and kills/restarts the ground container during collection, then checks recovery without a duplicate observation. It refuses to interrupt an already active procedure.
+The default deployment is local, with one ground service and one spacecraft. Public login/authorization is not implemented. The optional AWS files have been prepared and checked locally; no AWS resources have been provisioned as part of this project setup.
 
-With Colima, Java Testcontainers may need:
+## Design references
 
-```sh
-export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
-export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
-```
+- [Yamcs commanding](https://docs.yamcs.org/yamcs-server-manual/tc/) and [command verification](https://docs.yamcs.org/yamcs-server-manual/mdb/loaders/sheet/command-verification/).
+- [Lockheed Martin satellite software](https://www.lockheedmartin.com/en-us/products/satellite-software.html).
 
-Tests fail if Docker is unavailable; database tests are not silently skipped. GitHub Actions runs Java tests on Java 21 and browser scenarios on Linux. Browser tests alter the local simulator and create run history; use a separate Compose project/ports if preserving a demonstration dataset.
-
-## Boundaries
-
-- One ground-service instance and one spacecraft. Definitions are linear typed steps; no arbitrary scripts, branching or distributed leader election. At most 50 pending runs; schedules start within seven days with a start deadline at most 24 hours after their earliest start.
-- Localhost-only published ports and cross-origin browser mutation rejection. No user authentication/RBAC; do not expose it to a public network.
-- Recent console history: 100 runs, 300 procedure versions and 250 events; individual runs remain addressable by UUID. Telemetry retains approximately one hour; charts show the latest 90 samples. Run/command/event records are not automatically deleted.
-- The simulator ledger retains at most 10,000 command IDs. Duplicate suppression holds while its snapshot survives. It is not an unconditional exactly-once guarantee.
-- Snapshot writes support ordinary process-restart recovery. No claim is made about power-loss durability across all filesystems or disk failure.
-- Abort does not undo an executed command or automatically power off an instrument. Unresolved in-flight outcomes retain the reservation until reconciled.
-- The contact cycle is explicitly configured and accelerated; there is no orbit propagation, RF visibility calculation, real downlink image pipeline, thermal model, or autonomous safe-mode recovery. These are optional future work, not implemented features.
-
-## Why this project
-
-The portfolio progression is operator telemetry → distributed communication → reliable procedure execution in Java. The distinct contribution here is command verification and persistence under uncertain outcomes.
-
-Design references, not code dependencies or affiliations:
-- [Yamcs commanding](https://docs.yamcs.org/yamcs-server-manual/tc/) and [verification](https://docs.yamcs.org/yamcs-server-manual/mdb/loaders/sheet/command-verification/).
-- [Lockheed Martin ground software](https://www.lockheedmartin.com/en-us/products/satellite-software.html).
-
-See [project scope and résumé framing](docs/LEARNING.md). Describe only demonstrated capabilities and measured results in interviews.
+These are design references, with no affiliation or compatibility claim. The project's contribution is reliable procedure execution and evidence-based recovery in Java.

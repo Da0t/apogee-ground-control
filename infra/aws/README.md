@@ -1,5 +1,7 @@
 # Optional AWS deployment — prepared, not provisioned
 
+[Project overview](../../README.md) · [Local development](../../docs/DEVELOPMENT.md) · [Verification](../../docs/VERIFICATION.md)
+
 These files are an optional deployment path. No AWS resources have been created as part of preparing them. CloudFormation validation and local tests do **not** establish that deployment has succeeded in an AWS account. Account policies, regional capacity, IAM permissions, package installation and SSM connectivity still require a real deployment check.
 
 The existing Docker setup remains the local development environment. The cloud database starts empty and Flyway creates its schema; this setup does not upload local mission history or the local simulator ledger.
@@ -16,16 +18,16 @@ flowchart LR
   A[Versioned S3 release artifact] --> H
 ```
 
-| Choice | Purpose and tradeoff |
-| --- | --- |
-| RDS PostgreSQL 17, `db.t4g.micro`, Single-AZ, 20 GiB gp3 | Preserves JDBC/Flyway and existing relational data. Seven-day automated backups; no multi-zone availability claim. |
-| One `t3.small` EC2 host, Amazon Linux 2023, Java 21 | Runs the ground service and simulator as separate systemd processes. CPU credits use standard mode; sustained CPU can be throttled. |
-| Private database subnets | No public database endpoint. Port 5432 accepts traffic only from the application security group. |
-| EC2 public subnet, no inbound security-group rules | The host needs outbound HTTPS to SSM, S3, Secrets Manager and package repositories. A public IPv4 address avoids a NAT gateway, but has its own charge. This is not a fully private-subnet compute design. |
-| Session Manager port forwarding | AWS authenticates access. The application and simulator listen on loopback. No SSH keys, open SSH port, domain, ALB, or internet-facing console. |
-| Secrets Manager + Spring config tree | Passwords stay out of Git, template parameters, process arguments and unit files. A root helper writes the application password to a protected file in `/run` each time the ground service starts. |
-| Separate `apogee_app` database role | Application owns its tables and can migrate in the public schema; it does not connect as the RDS administrator. The EC2 bootstrap role can read the administrator secret to initialize permissions. |
-| Versioned S3 artifact + SHA-256 check | Publishes the same executable JAR as the local build, without compiling on a small cloud host. Deployments retain earlier artifacts. |
+| Choice                                                   | Purpose and tradeoff                                                                                                                                                                                       |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RDS PostgreSQL 17, `db.t4g.micro`, Single-AZ, 20 GiB gp3 | Preserves JDBC/Flyway and existing relational data. Seven-day automated backups; no multi-zone availability claim.                                                                                         |
+| One `t3.small` EC2 host, Amazon Linux 2023, Java 21      | Runs the ground service and simulator as separate systemd processes. CPU credits use standard mode; sustained CPU can be throttled.                                                                        |
+| Private database subnets                                 | No public database endpoint. Port 5432 accepts traffic only from the application security group.                                                                                                           |
+| EC2 public subnet, no inbound security-group rules       | The host needs outbound HTTPS to SSM, S3, Secrets Manager and package repositories. A public IPv4 address avoids a NAT gateway, but has its own charge. This is not a fully private-subnet compute design. |
+| Session Manager port forwarding                          | AWS authenticates access. The application and simulator listen on loopback. No SSH keys, open SSH port, domain, ALB, or internet-facing console.                                                           |
+| Secrets Manager + Spring config tree                     | Passwords stay out of Git, template parameters, process arguments and unit files. A root helper writes the application password to a protected file in `/run` each time the ground service starts.         |
+| Separate `apogee_app` database role                      | Application owns its tables and can migrate in the public schema; it does not connect as the RDS administrator. The EC2 bootstrap role can read the administrator secret to initialize permissions.        |
+| Versioned S3 artifact + SHA-256 check                    | Publishes the same executable JAR as the local build, without compiling on a small cloud host. Deployments retain earlier artifacts.                                                                       |
 
 SSM access is for a trusted operator. It is not application-level authorization or a public recruiter demo. A public deployment needs its own login/authorization and HTTPS design. This stack creates no CloudWatch log agent; service logs are inspected through SSM with `journalctl`.
 

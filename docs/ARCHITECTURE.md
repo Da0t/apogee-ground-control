@@ -1,66 +1,104 @@
 # Architecture and decisions
 
-## Ground service
+[Project overview](../README.md) · [Code walkthrough](LEARNING.md) · [Protocol](PROTOCOL.md) · [Verification](VERIFICATION.md)
 
-`GroundEngine` is a synchronized single-writer controller. Its 250 ms pump advances at most one procedure step per call. API operations and inbound TCP messages use the same monitor. A slow browser does not hold the engine lock while its SSE response is written.
+Apogee has one authoritative ground engine and one independent spacecraft model. They communicate over TCP and persist their own state. A browser observes ground-side evidence and requests operator actions.
 
-`MissionStore` is the persistence boundary. `PostgresStore` writes normalized run/command keys and statuses with JSONB aggregate documents. A database uniqueness constraint prevents multiple active instrument reservations. `TransactionTemplate` commits multi-row state/event updates together. This model supports one ground-service instance; the uniqueness constraint alone is not a multi-instance dispatch lock.
+## Runtime and ownership
 
-State transitions:
+| Component            | Owns                                                                                                  | Persistence                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| React frontend       | Draft form values, navigation, replay cursor, and displayed snapshots                                 | No authoritative mission state in the browser.           |
+| Ground service       | Run lifecycle, procedure selection, dispatch decisions, contact policy, and verified command outcomes | PostgreSQL through `MissionStore` / `PostgresStore`.     |
+| Spacecraft simulator | Instrument state, illustrative resources, accepted work, and executed outcomes                        | Atomically replaced JSON snapshot with a command ledger. |
+
+Closing the browser does not stop an execution. Disconnecting the ground link does not stop work accepted by the spacecraft. On simulator restart, ticks resume from the saved snapshot without fast-forwarding through downtime.
+
+The model is deterministic for the same initial snapshot and ordered command/fault/tick inputs. Battery starts at 82% and storage at 12%. Each tick adds 0.04 battery percentage points while the instrument is off or subtracts 0.08 while powered, clamped to 0–100%. A completed collection adds one observation and 20 storage percentage points. These values are illustrative resource rules.
+
+## Ground engine and transactions
+
+`GroundEngine` uses synchronized methods to serialize API actions, incoming TCP messages, and timer updates. `MissionApi` calls its progress check with a 250 ms fixed delay. Each check advances at most one procedure step. SSE sends happen after snapshot creation, outside the engine lock.
+
+`MissionStore` defines the persistence interface. `PostgresStore` combines relational IDs/status columns with JSONB documents. `TransactionTemplate` commits related state and event updates together. A partial unique index permits one active instrument reservation, including paused and aborting runs.
+
+This is a single-ground-process design. The database constraint alone is not a distributed dispatch lock.
+
+## Command lifecycle
+
+The usual path is `QUEUED → SENT → ACCEPTED → COMPLETED`. Completion can arrive before acceptance. The engine preserves terminal outcomes when late messages arrive.
 
 ```mermaid
 stateDiagram-v2
     [*] --> QUEUED
-    QUEUED --> SENT: commit before socket write
-    SENT --> ACCEPTED: spacecraft acknowledgment
-    SENT --> COMPLETED: completion arrives first
-    ACCEPTED --> COMPLETED: durable spacecraft outcome
-    SENT --> REJECTED
-    ACCEPTED --> FAILED
+    QUEUED --> SENT: persist before socket write
+    SENT --> ACCEPTED: acceptance reply
+    SENT --> COMPLETED: completion reply
+    ACCEPTED --> COMPLETED: completion reply
+    SENT --> REJECTED: refusal
+    ACCEPTED --> FAILED: failure reply
     SENT --> UNKNOWN: timeout or ground restart
     ACCEPTED --> UNKNOWN: timeout or ground restart
-    UNKNOWN --> ACCEPTED: status query
-    UNKNOWN --> COMPLETED: status query or late acknowledgment
-    UNKNOWN --> REJECTED: status query
-    UNKNOWN --> FAILED: status query
+    UNKNOWN --> ACCEPTED: status evidence
+    UNKNOWN --> COMPLETED: status evidence
+    UNKNOWN --> REJECTED: status evidence
+    UNKNOWN --> FAILED: status evidence
 ```
 
-The SENT marker means dispatch has been attempted or is about to be attempted, not that the remote process received the bytes. That conservative interpretation closes the commit/send crash gap without pretending to have an atomic database/network operation.
+`SENT` records a dispatch attempt or intent immediately before transmission. It does not prove receipt. The database commit and socket write cannot be one atomic operation; a crash between them is recovered conservatively as `UNKNOWN`.
 
-A procedure pauses on unmet preconditions or an UNKNOWN outcome. Reconciliation updates command evidence but does not automatically resume a paused procedure. If a query returns NOT_FOUND, the ground service cannot prove whether ledger data was lost or the command was never received; it preserves UNKNOWN instead of guessing. An operator can only release an in-flight reservation after a terminal outcome is established. Offline recovery of unrecoverable state is outside v1.
+A missing outcome pauses the procedure. Reconciliation queries the existing command ID and updates evidence; the operator explicitly resumes. A `NOT_FOUND` response cannot establish whether the command never arrived or the spacecraft lost its ledger, so it preserves uncertainty. Unresolved work keeps its reservation. Automatic recovery from lost ledger data is outside the current implementation.
 
-## Independent spacecraft
+Onboard, resource changes and command completion are saved in the same snapshot before a completion reply is sent. Saving uses an fsynced temporary file and atomic rename. Duplicate IDs return recorded status; reusing an ID with a different kind or duration is rejected. These guarantees depend on retaining the snapshot and do not cover arbitrary hardware/storage loss.
 
-`Spacecraft` is deterministic for a given initial snapshot and ordered command/fault/tick inputs. `SimulatorMain` advances it once a second. Restarted simulation resumes the saved tick; it does not fast-forward through downtime.
+## Procedures and scheduling
 
-Commands are independently checked onboard. The model commits resource changes and command completion to the same atomically replaced JSON snapshot before sending a completion acknowledgment. Capture IDs provide durable observation evidence; image pixels are not generated. Duplicate IDs return the recorded status; IDs reused with another command kind are rejected.
+Published definitions use immutable `(id, version)` keys. A caller supplies its base version so publication can reject a stale edit. Each run copies the definition at creation, including for future schedules. A later publication cannot alter that run.
 
-The local snapshot uses an fsynced temporary file and atomic rename. It is a process-recovery model, not a replicated database or a guarantee against hardware/storage loss.
+Definitions contain 2–8 typed commands with ordered power transitions, a final powered-off state, execution durations, verification timeouts, and applicable telemetry requirements. Validation permits stronger-than-minimum requirements and executes no user-supplied code.
 
-## Networking and clocks
+Scheduled runs acquire no instrument reservation until activation. Each engine check first expires missed start deadlines, then considers pending runs in earliest-start, creation-time, and ID order. At most one eligible run activates, requiring an available instrument, permitted contact, a live link, fresh telemetry, and the first step's requirements. Requirements are checked again before every dispatch.
 
-TCP is deliberately simple and ordered. Reads are framed and limited to 16 KiB. A local scenario can suppress a completion message before writing it to TCP, or close the socket. This models application message loss/connection failure, not arbitrary loss of already-delivered TCP data.
+| Time setting             | Controls                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Step duration            | How many one-second simulation ticks execution takes.                                             |
+| Verification timeout     | How long the ground waits for command evidence; acceptance restarts the timeout from its receipt. |
+| Scheduled earliest start | When a pending run first becomes eligible.                                                        |
+| Scheduled start deadline | Latest time it may begin; already-running work is not cancelled by this deadline.                 |
+| Contact window           | When the ground link is permitted to connect and communicate.                                     |
 
-The ground service reconnects without resending mission commands. It timestamps accepted telemetry on receipt and rejects repeated or reversed sequence numbers within a simulator boot. The new boot ID allows sequence/session changes. There is no remote clock synchronization claim; freshness measures time since a new message was received, not the physical age of a sensor measurement.
+## Contacts, networking, and clocks
 
-The engine uses an injected clock; unit tests move time without sleeping. Live timeout timing currently uses wall-clock milliseconds, so large host clock adjustments affect the deadline. Simulation ticks and event timestamps are distinct concepts.
+A persisted contact plan defines an epoch, cycle period, and open duration. Window starts are inclusive and ends exclusive. The engine updates the TCP adapter during its periodic check, checks the window again before dispatch, and ignores incoming messages outside contact. The adapter closes its socket during a blackout and pauses reconnects. Accepted spacecraft work continues independently.
 
-## UI and APIs
+Reopening contact permits connection recovery; paused runs retain explicit reconciliation/resume behavior. Continuous contact can be restored to recover an active run.
 
-REST accepts actions; SSE publishes a full snapshot every second. Full snapshots make browser reconnection simple but are intentionally not a high-throughput telemetry design. The UI charts actual received sample history. Browser loss of contact marks the spacecraft unavailable; stale values cannot enable execution.
+TCP carries bounded, newline-delimited JSON messages. The lost-completion scenario suppresses an application reply before it is written to TCP. It does not emulate arbitrary loss of bytes already delivered by TCP. Reconnection never automatically resends mission commands.
 
-The frontend records no authoritative mission state. PostgreSQL history survives browser reload and ground restart. Event replay scrubs the recorded event sequence, not the simulator's physical state. Export includes run, commands, and up to 250 recorded events.
+Telemetry is timestamped on receipt. Duplicate or reversed sequence numbers within the same simulator boot are ignored; a new boot ID identifies a new session. Freshness measures elapsed time since receipt of a new message, not the physical age of a sensor reading. The engine uses an injected clock for tests and wall-clock milliseconds live; large host-clock adjustments can affect deadlines.
 
-## Versioned procedures and scheduling
+## Browser updates and visuals
 
-A procedure is an immutable `(id, version)` record. Publishing uses the caller's base version to reject stale revisions; a database primary key prevents overwriting a published version. Each run embeds its definition at creation, including when scheduled, so editing a definition cannot change an existing execution. Steps include command kind, execution duration, verification timeout and battery/storage guards. The validator restricts definitions to 2–8 typed commands, ordered power transitions and stronger-than-minimum safety guards. It executes no user code.
+REST accepts actions. SSE sends a full state snapshot about once a second, simplifying browser reconnection. The browser marks data unavailable when its stream drops; stale values cannot enable execution. Full snapshots are a deliberate small-demo choice, not a throughput benchmark.
 
-`SCHEDULED` runs do not hold the instrument. The engine first expires missed start deadlines, then activates at most one eligible run ordered by earliest start, creation time and ID. Activation requires an available instrument, permitted contact, a live TCP connection, fresh telemetry and the first step's guards. Guards are checked again at every dispatch. A start deadline limits when execution can begin; it is not a deadline for finishing an in-flight command. Queued runs survive backend restarts. Cancelling one sends no commands.
+Four page URLs serve the same React application through explicit Spring routes. Event replay displays recorded decisions and sends no spacecraft commands.
 
-Contact policy is a durable repeating cycle with an epoch, period and open duration. Windows have inclusive starts and exclusive ends. The single engine writer updates the TCP adapter every 250 ms; the adapter closes its socket outside contact and pauses reconnects. The engine also checks the current window before dispatch and drops messages racing with a window closure. Work already accepted by the spacecraft continues there. Missing outcomes retain the same UNKNOWN/reconcile/manual-resume rules. Reopening contact does not automatically resume a paused run. An operator may restore continuous contact to recover an uncertain run.
+The satellite drawing is a subsystem schematic. The globe projects bundled [Natural Earth outlines](../web/NOTICE.md) and a synthetic great-circle surface track using the saved contact cycle's phase. Station coordinates affect the illustration; neither orbital elements nor an RF visibility model determine contact.
 
-The globe renders a synthetic great-circle surface track whose phase comes from the same persisted cycle. It is explanatory geometry; station coordinates do not derive the link policy and no orbital elements or RF model are used. Natural Earth outlines are bundled locally. Page routes are handled by a small SPA navigation layer with a Spring index fallback for the four explicit paths.
+## Limits
 
-## Tradeoffs and follow-ons
+| Area              | Current boundary                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment        | One ground instance and one spacecraft; localhost access with cross-site browser mutation rejection, no user authentication/RBAC.                                             |
+| Procedures        | Linear typed steps, no arbitrary scripts, branching, or distributed leader election.                                                                                          |
+| Scheduling        | At most 50 pending runs. API earliest start is within seven days; start deadline is at most 24 hours after earliest start. The UI's start-delay input is limited to one hour. |
+| History           | Recent state exposes 100 runs, up to 300 stored procedure versions plus the built-in v1 fallback when absent, and 250 events. Individual runs remain addressable by UUID.     |
+| Telemetry         | Roughly 3,600 recent received samples are retained; charts use the latest 90. This approximates one hour only while samples arrive each second.                               |
+| Export            | Run, commands, and up to 250 events; run/command/event records are not automatically deleted.                                                                                 |
+| Spacecraft ledger | At most 10,000 command IDs. Duplicate suppression depends on preserving the snapshot.                                                                                         |
+| Abort             | Stops future steps; does not undo effects or automatically power off. Unresolved outcomes retain the reservation.                                                             |
+| Physical model    | Illustrative telemetry and observations; no image pipeline, orbital propagation, RF visibility, thermal model, or autonomous safe-mode recovery.                              |
 
-The current implementation makes concurrency, persistence and command uncertainty visible without brokers or orbital mechanics. Further work could add telemetry alarm lifecycles, database-backed simulator state, bounded asynchronous network writes, stronger clock/freshness modeling, auth for multi-user operation, or physically derived contact windows. The original mission-scheduler repository is not integrated or modified by this change.
+## Possible extensions
+
+Further work could add telemetry alarm lifecycles, bounded asynchronous socket writes, stronger clock modeling, a replicated spacecraft ledger, user authorization, or physically derived contact windows. These are future possibilities, not implemented capabilities. The original mission-scheduler repository remains independent.

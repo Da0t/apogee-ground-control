@@ -1,0 +1,38 @@
+name: apogee
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: apogee
+      POSTGRES_USER: apogee
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-apogee-local}
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apogee"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  simulator:
+    build: .
+    command: ["java", "-jar", "/app/apogee.jar", "--simulator"]
+    environment:
+      SIMULATOR_BIND: 0.0.0.0
+      SIMULATOR_STATE: /app/data/spacecraft.json
+    volumes: ["simulator-data:/app/data"]
+  ground:
+    build: .
+    environment:
+      BIND_ADDRESS: 0.0.0.0
+      DATABASE_URL: jdbc:postgresql://database:5432/apogee
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-apogee-local}
+      SIMULATOR_HOST: simulator
+    ports: ["127.0.0.1:8081:8081"]
+    depends_on:
+      database:
+        condition: service_healthy
+      simulator:
+        condition: service_started
+volumes:
+  postgres-data:
+  simulator-data:

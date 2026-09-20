@@ -5,7 +5,7 @@
 | R1 | Stale/out-of-order telemetry cannot authorize a new command | GroundEngineTest stale/reordered cases + browser stale scenario |
 | R2 | Acceptance is distinct from completion | GroundEngineTest.acceptedIsNotCompleted |
 | R3 | Missing completion produces UNKNOWN and pause | GroundEngineTest lost-completion case + browser real TCP scenario |
-| R4 | Recovery never blindly reissues an unresolved command | GroundEngineTest.processRestartDoesNotResend + PostgreSQL recovery integration |
+| R4 | Recovery never blindly reissues an unresolved command | GroundEngineTest.processRestartDoesNotResend + PostgreSQL recovery integration + actual ground-container SIGKILL check |
 | R5 | Duplicate IDs do not repeat an observation while ledger survives | SpacecraftTest.duplicateSurvivesRestartWithoutRepeatingObservation |
 | R6 | One procedure reserves the instrument | GroundEngineTest reservation case + actual PostgreSQL unique-index rollback test |
 | R7 | Abort stops future steps, not already-executed effects | GroundEngineTest.abortWaitsForInflightAndPreservesReservation |
@@ -16,6 +16,8 @@
 | R12 | Operator can inspect recorded decisions | Browser run export and event replay assertions |
 
 Run `./mvnw verify` with Docker available. Testcontainers uses a separate PostgreSQL database; it does not mutate the demo database. The initial suite contains 20 Java tests and 3 browser scenarios. Browser scenarios require a running application with no active procedure and create their own run history.
+
+For an actual process crash, run `python3 scripts/check-restart.py` from the project root against the Docker Compose deployment. It refuses to interrupt an existing active procedure, starts one observation, sends SIGKILL to only the ground container during collection, and restarts it. Assertions check that recovery pauses the run, reconciliation adds no duplicate observation, and manual resume completes exactly three commands. This separate local verification passed with one observation added; it is not part of the GitHub Actions browser job.
 
 Unit tests use an injected clock and explicit simulator ticks. They do not wait for wall time. Browser tests exercise the real REST/SSE/TCP chain and use bounded polling of observed state.
 

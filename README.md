@@ -93,6 +93,8 @@ npx playwright install chromium
 npm run test:e2e               # requires a running stack with no active procedure
 ```
 
+To exercise a forced backend crash against the Docker Compose stack, run `python3 scripts/check-restart.py` from the project root. It creates an observation and kills/restarts the ground container during collection, then checks recovery without a duplicate observation. It refuses to interrupt an already active procedure.
+
 With Colima, Java Testcontainers may need:
 
 ```sh

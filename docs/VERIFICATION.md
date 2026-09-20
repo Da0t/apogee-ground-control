@@ -14,8 +14,13 @@
 | R10 | Uncertain completion can be reconciled without another observation | Browser test compares observation count before/after reconciliation |
 | R11 | Commands are independently checked by spacecraft | SpacecraftTest unsafe command rejection |
 | R12 | Operator can inspect recorded decisions | Browser run export and event replay assertions |
+| R13 | Published revisions cannot mutate existing executions | PlanningTest snapshot/CAS checks + PostgreSQL immutable-key test + browser queued-version export |
+| R14 | Schedules require contact, fresh telemetry and an available instrument | PlanningTest scheduling guards + real TCP contact-loss browser scenario |
+| R15 | A missed start deadline transmits no commands | PlanningTest deadline case |
+| R16 | Repeated command kinds preserve independent identities and arguments | PlanningTest repeated collections + SpacecraftTest duration identity/restart |
+| R17 | Pages support direct loading and browser navigation | Browser deep-link/reload/back checks and mobile page/globe checks |
 
-Run `./mvnw verify` with Docker available. Testcontainers uses a separate PostgreSQL database; it does not mutate the demo database. The initial suite contains 20 Java tests and 3 browser scenarios. Browser scenarios require a running application with no active procedure and create their own run history.
+Run `./mvnw verify` with Docker available. Testcontainers uses a separate PostgreSQL database; it does not mutate the demo database. The suite contains 32 Java tests and 6 browser scenarios. Browser scenarios require a running application with no active procedure and create their own run history.
 
 For an actual process crash, run `python3 scripts/check-restart.py` from the project root against the Docker Compose deployment. It refuses to interrupt an existing active procedure, starts one observation, sends SIGKILL to only the ground container during collection, and restarts it. Assertions check that recovery pauses the run, reconciliation adds no duplicate observation, and manual resume completes exactly three commands. This separate local verification passed with one observation added; it is not part of the GitHub Actions browser job.
 

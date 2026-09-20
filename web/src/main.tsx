@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -23,6 +23,7 @@ import {
   Square,
   Terminal,
   Wifi,
+  Globe2,
   X,
   Zap,
 } from "lucide-react";
@@ -32,51 +33,10 @@ import "@fontsource/dm-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "./style.css";
 
-type Telemetry = {
-  battery: number;
-  storage: number;
-  instrument: string;
-  mode: string;
-  observations: number;
-  tick: number;
-  sequence: number;
-  fault: string;
-  receivedAt: number;
-};
-type Run = {
-  id: string;
-  status: string;
-  step: number;
-  reason: string;
-  createdAt: number;
-  version: number;
-};
-type Cmd = {
-  id: string;
-  kind: string;
-  status: string;
-  reason: string;
-  createdAt: number;
-};
-type Event = {
-  sequence: number;
-  at: number;
-  level: string;
-  message: string;
-  runId: string | null;
-  commandId: string | null;
-};
-type State = {
-  connected: boolean;
-  fresh: boolean;
-  now: number;
-  telemetry: Telemetry | null;
-  run: Run | null;
-  commands: Cmd[];
-  events: Event[];
-  samples: Telemetry[];
-  runs: Run[];
-};
+import type { Telemetry, Run, Event, State, Procedure } from "./types";
+import { ProceduresPage } from "./ProceduresPage";
+import { ContactsPage } from "./ContactsPage";
+
 const time = (n: number) =>
   new Date(n).toLocaleTimeString("en-GB", { hour12: false });
 const labels: Record<string, string> = {
@@ -84,7 +44,15 @@ const labels: Record<string, string> = {
   CAPTURE: "Collect observation",
   POWER_OFF: "Power off instrument",
 };
-const steps = ["POWER_ON", "CAPTURE", "POWER_OFF"];
+const routes: Record<string, string> = {
+  console: "/console",
+  procedure: "/procedures",
+  contacts: "/contacts",
+  history: "/history",
+};
+const currentPage = () =>
+  Object.entries(routes).find(([, path]) => path === location.pathname)?.[0] ||
+  "console";
 const scenarios = [
   [
     "NONE",
@@ -261,6 +229,7 @@ function Craft({ instrument }: { instrument: string }) {
   );
 }
 function App() {
+  const inspectRequest = useRef(0);
   const [wallTime, setWallTime] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setWallTime(Date.now()), 1000);
@@ -268,7 +237,8 @@ function App() {
   }, []);
   const [state, setState] = useState<State | null>(null),
     [stream, setStream] = useState(false),
-    [tab, setTab] = useState("console"),
+    [tab, setTab] = useState(currentPage),
+    [chosen, setChosen] = useState("OBSERVATION-001:1"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [help, setHelp] = useState(false),
@@ -276,6 +246,16 @@ function App() {
     [selected, setSelected] = useState<string | null>(null),
     [replay, setReplay] = useState<Event[]>([]),
     [cursor, setCursor] = useState(0);
+  function navigate(page: string) {
+    history.pushState({}, "", routes[page]);
+    setTab(page);
+    window.scrollTo(0, 0);
+  }
+  useEffect(() => {
+    const change = () => setTab(currentPage());
+    window.addEventListener("popstate", change);
+    return () => window.removeEventListener("popstate", change);
+  }, []);
   useEffect(() => {
     fetch("/api/state")
       .then((r) => r.json())
@@ -302,24 +282,29 @@ function App() {
       if (!r.ok) throw new Error(data.message || "Request failed");
       const fresh = await fetch("/api/state");
       setState(await fresh.json());
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
   }
   async function inspect(id: string) {
-    setSelected(id);
+    const request = ++inspectRequest.current;
+    setSelected(null);
     setError("");
     try {
       const r = await fetch(`/api/runs/${id}/export`);
       if (!r.ok) throw new Error("Could not load run history");
       const data = await r.json();
+      if (request !== inspectRequest.current) return;
       const e = [...data.events].reverse();
       setReplay(e);
       setCursor(Math.max(0, e.length - 1));
+      setSelected(id);
     } catch (e) {
-      setError((e as Error).message);
+      if (request === inspectRequest.current) setError((e as Error).message);
     }
   }
   const t = state?.telemetry,
@@ -327,8 +312,44 @@ function App() {
     active = r && ["RUNNING", "PAUSED", "ABORTING"].includes(r.status),
     commands = state?.commands || [],
     age = t ? Math.max(0, (wallTime - t.receivedAt) / 1000) : null;
+  const runDefinition = r ? `${r.procedure}:${r.version}` : null;
+  useEffect(() => {
+    if (runDefinition) setChosen(runDefinition);
+  }, [r?.id, runDefinition]);
   const live = Boolean(state?.connected && stream),
     fresh = Boolean(state?.fresh && stream && age !== null && age <= 5);
+  const definitions = state?.procedures || [];
+  const definition = active
+    ? r.definition
+    : definitions.find((p) => `${p.id}:${p.version}` === chosen) ||
+      r?.definition ||
+      definitions[0];
+  const steps = definition?.steps || [];
+  const sameDefinition =
+    r?.procedure === definition?.id && r?.version === definition?.version;
+  const displayedRun = active || sameDefinition ? r : null;
+  const titles: Record<string, [string, string, string]> = {
+    console: [
+      "Mission console",
+      "Mission console",
+      "Command with intent. Verify with evidence.",
+    ],
+    procedure: [
+      "Procedures",
+      "A plan with verifiable steps.",
+      "Publish immutable versions. Every run preserves the definition it executes.",
+    ],
+    contacts: [
+      "Contact planning",
+      "Make the next contact count.",
+      "Schedule procedures around an accelerated, simulated communication cycle.",
+    ],
+    history: [
+      "Run history",
+      "Every action, accounted for.",
+      "Inspect recorded decisions and replay the event sequence.",
+    ],
+  };
   const commandAction = (action: string) =>
     r && post(`/runs/${r.id}/${action}`);
   return (
@@ -357,17 +378,23 @@ function App() {
           {[
             ["console", "Mission console", Crosshair],
             ["procedure", "Procedures", Layers],
+            ["contacts", "Contact planning", Globe2],
             ["history", "Run history", History],
           ].map(([id, label, Icon]) => (
-            <button
+            <a
               key={id as string}
-              onClick={() => setTab(id as string)}
+              href={routes[id as string]}
+              aria-current={tab === id ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                navigate(id as string);
+              }}
               className={tab === id ? "nav active" : "nav"}
             >
               <Icon size={17} />
               {label as string}
-              {id === "console" && <span className="nav-dot" />}
-            </button>
+              {tab === id && <span className="nav-dot" />}
+            </a>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -389,13 +416,7 @@ function App() {
         <header>
           <div className="breadcrumb">
             Operations <ChevronRight size={13} />
-            <strong>
-              {tab === "history"
-                ? "Run history"
-                : tab === "procedure"
-                  ? "Procedures"
-                  : "Mission console"}
-            </strong>
+            <strong>{titles[tab][0]} </strong>
           </div>
           <div className="header-right">
             <span className={"connection " + (stream ? "ok" : "warn")}>
@@ -413,20 +434,8 @@ function App() {
               <div className="eyebrow">
                 ASTER-01 <span>/</span> OPERATIONS WORKSPACE
               </div>
-              <h1>
-                {tab === "history"
-                  ? "Every action, accounted for."
-                  : tab === "procedure"
-                    ? "A plan with verifiable steps."
-                    : "Mission console"}
-              </h1>
-              <p>
-                {tab === "history"
-                  ? "Inspect recorded decisions and replay the event sequence."
-                  : tab === "procedure"
-                    ? "OBSERVATION-001 · Version 1 · Exclusive instrument reservation"
-                    : "Command with intent. Verify with evidence."}
-              </p>
+              <h1>{titles[tab][1]}</h1>
+              <p>{titles[tab][2]}</p>
             </div>
             <span className="sim-badge">
               <FlaskConical size={13} /> SIMULATED MISSION
@@ -440,7 +449,21 @@ function App() {
               </button>
             </div>
           )}
-          {tab === "history" ? (
+          {tab === "procedure" ? (
+            state && (
+              <ProceduresPage
+                procedures={definitions}
+                busy={busy}
+                post={post}
+                onSelect={(p: Procedure) => {
+                  setChosen(`${p.id}:${p.version}`);
+                  navigate("console");
+                }}
+              />
+            )
+          ) : tab === "contacts" ? (
+            state && <ContactsPage state={state} busy={busy} post={post} />
+          ) : tab === "history" ? (
             <div className="history-layout">
               <section className="panel">
                 <div className="panel-title">
@@ -455,7 +478,7 @@ function App() {
                       Run the observation procedure to begin an auditable
                       history.
                     </p>
-                    <button onClick={() => setTab("console")}>
+                    <button onClick={() => navigate("console")}>
                       Open mission console <ArrowUpRight size={14} />
                     </button>
                   </div>
@@ -469,7 +492,10 @@ function App() {
                       onClick={() => inspect(run.id)}
                     >
                       <span>
-                        <strong>Observation procedure</strong>
+                        <strong>
+                          {run.definition?.name || "Observation procedure"} · v
+                          {run.version}
+                        </strong>
                         <small>
                           {new Date(run.createdAt).toLocaleString()} ·{" "}
                           {run.id.slice(0, 8)}
@@ -531,6 +557,30 @@ function App() {
             </div>
           ) : (
             <>
+              {state?.contacts.plan.enabled && (
+                <div className="contact-banner">
+                  <Globe2 size={17} />
+                  <span>
+                    <strong>
+                      {state.contacts.open
+                        ? "Contact window open"
+                        : "Between contact windows"}
+                    </strong>
+                    {state.contacts.open
+                      ? " · TCP link permitted"
+                      : ` · Next acquisition ${time(state.contacts.nextOpen)}`}
+                  </span>
+                  <a
+                    href="/contacts"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate("contacts");
+                    }}
+                  >
+                    View contact plan <ArrowUpRight size={13} />
+                  </a>
+                </div>
+              )}
               <div className="stats">
                 <div className="stat">
                   <span>
@@ -687,27 +737,53 @@ function App() {
                   <section className="panel procedure">
                     <div className="panel-title">
                       <h2>
-                        <Layers size={16} /> Observation procedure
+                        <Layers size={16} />{" "}
+                        {definition?.name || "Observation procedure"}
                       </h2>
-                      <span className="mono">v1.0</span>
+                      <span className="mono">v{definition?.version || 1}</span>
                     </div>
                     <div className="procedure-desc">
-                      Collect an observation, verify storage, and return the
-                      instrument to standby.
+                      {definition?.description}
+                      {!active && (
+                        <label className="procedure-picker">
+                          Procedure version
+                          <select
+                            aria-label="Procedure version"
+                            value={chosen}
+                            onChange={(e) => setChosen(e.target.value)}
+                          >
+                            {definitions.map((p) => (
+                              <option
+                                key={`${p.id}:${p.version}`}
+                                value={`${p.id}:${p.version}`}
+                              >
+                                {p.name} · v{p.version}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                     </div>
                     <div className="precondition">
                       <ShieldCheck size={15} />
                       <span>
-                        Fresh telemetry · Battery ≥ 30% · Storage ≤ 80%
+                        Fresh telemetry · Contact required · Guards checked per
+                        step
                       </span>
                     </div>
                     <div className="steps">
                       {steps.map((s, i) => {
-                        const c = commands.find((c) => c.kind === s),
+                        const c = sameDefinition
+                            ? commands.find(
+                                (c) =>
+                                  c.stepIndex === i ||
+                                  (c.stepIndex === -1 && c.kind === s.kind),
+                              )
+                            : undefined,
                           done = c?.status === "COMPLETED";
                         return (
                           <div
-                            key={s}
+                            key={i}
                             className={
                               "step " +
                               (done
@@ -725,16 +801,12 @@ function App() {
                               )}
                             </div>
                             <div>
-                              <strong>{labels[s]}</strong>
+                              <strong>{labels[s.kind]}</strong>
                               <small>
                                 {done
                                   ? "Completion verified"
                                   : c?.status ||
-                                    [
-                                      "Enable the observation payload",
-                                      "Acquire and persist a 20% storage record",
-                                      "Confirm instrument state is OFF",
-                                    ][i]}
+                                    `${s.durationSeconds}s execution · ${s.timeoutSeconds}s verification`}
                               </small>
                             </div>
                             {done && (
@@ -747,13 +819,14 @@ function App() {
                     <div className="run-state">
                       <span
                         className={
-                          "status " + (r?.status || "idle").toLowerCase()
+                          "status " +
+                          (displayedRun?.status || "idle").toLowerCase()
                         }
                       >
-                        {r?.status || "READY"}
+                        {displayedRun?.status || "READY"}
                       </span>
                       <p>
-                        {r?.reason ||
+                        {displayedRun?.reason ||
                           "No procedure in progress. The instrument is available."}
                       </p>
                     </div>
@@ -763,10 +836,17 @@ function App() {
                           className="primary"
                           disabled={busy || !fresh || !live}
                           onClick={() =>
-                            post("/runs", { requestId: crypto.randomUUID() })
+                            post("/runs", {
+                              requestId: crypto.randomUUID(),
+                              procedureId: definition?.id,
+                              version: definition?.version,
+                            })
                           }
                         >
-                          <Play size={15} /> Execute observation
+                          <Play size={15} />{" "}
+                          {definition?.id === "OBSERVATION-001"
+                            ? "Execute observation"
+                            : "Execute procedure"}
                         </button>
                       ) : (
                         <>

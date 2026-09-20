@@ -14,6 +14,7 @@ public class TcpLink implements GroundEngine.Link, AutoCloseable {
   private volatile Socket socket;
   private volatile boolean running = true;
   private volatile long reconnectAfter;
+  private volatile boolean contactAllowed = true;
 
   public TcpLink(String host, int port) {
     this.host = host;
@@ -27,7 +28,7 @@ public class TcpLink implements GroundEngine.Link, AutoCloseable {
             () -> {
               while (running) {
                 try {
-                  if (System.currentTimeMillis() < reconnectAfter) {
+                  if (!contactAllowed || System.currentTimeMillis() < reconnectAfter) {
                     Thread.sleep(100);
                     continue;
                   }
@@ -38,8 +39,9 @@ public class TcpLink implements GroundEngine.Link, AutoCloseable {
                   socket = next;
                   try (next) {
                     JsonNode n;
-                    while (running && (n = Wire.read(next.getInputStream())) != null)
-                      receiver.accept(n);
+                    while (running
+                        && contactAllowed
+                        && (n = Wire.read(next.getInputStream())) != null) receiver.accept(n);
                   }
                 } catch (InterruptedException e) {
                   Thread.currentThread().interrupt();
@@ -61,12 +63,12 @@ public class TcpLink implements GroundEngine.Link, AutoCloseable {
 
   public boolean connected() {
     Socket s = socket;
-    return s != null && s.isConnected() && !s.isClosed();
+    return contactAllowed && s != null && s.isConnected() && !s.isClosed();
   }
 
   public void send(Map<String, ?> m) {
     Socket s = socket;
-    if (s == null) return;
+    if (!contactAllowed || s == null) return;
     try {
       Wire.write(s.getOutputStream(), m);
     } catch (IOException e) {
@@ -82,6 +84,12 @@ public class TcpLink implements GroundEngine.Link, AutoCloseable {
         s.close();
       } catch (IOException ignored) {
       }
+  }
+
+  public void contactAllowed(boolean allowed) {
+    if (contactAllowed == allowed) return;
+    contactAllowed = allowed;
+    if (!allowed) disconnect(0);
   }
 
   public void close() {

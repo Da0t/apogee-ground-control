@@ -9,6 +9,9 @@ test("nominal procedure, uncertain completion, reconciliation and replay", async
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(page.getByText("Ground service live")).toBeVisible();
+  await page
+    .getByLabel("Procedure version", { exact: true })
+    .selectOption("OBSERVATION-001:1");
   await request.post("/api/scenario", { data: { mode: "NONE" } });
   await expect
     .poll(
@@ -17,6 +20,7 @@ test("nominal procedure, uncertain completion, reconciliation and replay", async
     )
     .toBe("NONE");
   await page.getByRole("button", { name: "Execute observation" }).click();
+  await expect(page.locator(".run-state .status")).toHaveText("RUNNING");
   await expect(page.locator(".run-state .status")).toHaveText("COMPLETED", {
     timeout: 25000,
   });
@@ -38,6 +42,7 @@ test("nominal procedure, uncertain completion, reconciliation and replay", async
     )
     .toBe("DROP_COMPLETION");
   await page.getByRole("button", { name: "Execute observation" }).click();
+  await expect(page.locator(".run-state .status")).toHaveText("RUNNING");
   await expect(page.locator(".run-state .status")).toHaveText("PAUSED", {
     timeout: 25000,
   });
@@ -57,7 +62,7 @@ test("nominal procedure, uncertain completion, reconciliation and replay", async
   ).toBe(before);
   await page.screenshot({ path: "test-results/desktop.png", fullPage: true });
 
-  await page.getByRole("button", { name: "Run history" }).click();
+  await page.getByRole("link", { name: "Run history" }).click();
   await page.locator(".run-row").first().click();
   await expect(page.getByLabel("Replay position")).toBeVisible();
   const exportPath = await page
@@ -76,6 +81,9 @@ test("stale measurements and low battery block authorization", async ({
   request,
 }) => {
   await page.goto("/");
+  await page
+    .getByLabel("Procedure version", { exact: true })
+    .selectOption("OBSERVATION-001:1");
   await request.post("/api/scenario", { data: { mode: "LOW_BATTERY" } });
   await expect
     .poll(
@@ -107,6 +115,9 @@ test("mobile console and cross-origin command rejection", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await page
+    .getByLabel("Procedure version", { exact: true })
+    .selectOption("OBSERVATION-001:1");
   await expect(
     page.getByRole("button", { name: "Execute observation" }),
   ).toBeVisible();

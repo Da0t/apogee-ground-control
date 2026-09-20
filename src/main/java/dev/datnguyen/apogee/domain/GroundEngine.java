@@ -11,6 +11,8 @@ public class GroundEngine {
     boolean connected();
 
     void send(Map<String, ?> message);
+
+    default void contactAllowed(boolean allowed) {}
   }
 
   private final MissionStore store;
@@ -30,14 +32,58 @@ public class GroundEngine {
   }
 
   private Run active() {
-    return store.runs().stream()
-        .filter(
-            r ->
-                r.status == RunStatus.RUNNING
-                    || r.status == RunStatus.PAUSED
-                    || r.status == RunStatus.ABORTING)
-        .findFirst()
-        .orElse(null);
+    return store.activeRun();
+  }
+
+  private Contacts.Status contacts() {
+    return Contacts.status(store.contactPlan(), now());
+  }
+
+  private Procedure definition(String id, Integer version) {
+    Procedure p = store.procedure(id, version);
+    if (p == null && "OBSERVATION-001".equals(id) && (version == null || version == 1))
+      p = Models.defaultProcedure();
+    if (p == null) throw new IllegalArgumentException("Unknown procedure version");
+    return p;
+  }
+
+  public synchronized Procedure publish(
+      String id, int baseVersion, String name, String description, List<Step> steps) {
+    Procedure latest = store.procedure(id, null);
+    if (latest == null && "OBSERVATION-001".equals(id)) latest = Models.defaultProcedure();
+    if (baseVersion != (latest == null ? 0 : latest.version()))
+      throw new IllegalStateException(
+          "Procedure changed; reload its latest version before publishing");
+    Procedure next = new Procedure(id, baseVersion + 1, name, description, now(), steps);
+    Models.validateProcedure(next);
+    store.atomic(
+        () -> {
+          if ("OBSERVATION-001".equals(id) && store.procedure(id, 1) == null)
+            store.save(Models.defaultProcedure());
+          store.save(next);
+          event("INFO", "Published " + id + " v" + next.version(), null, null);
+        });
+    return next;
+  }
+
+  public synchronized Contacts.Status configureContacts(Contacts.Plan plan) {
+    Contacts.validate(plan, now());
+    if (active() != null && plan.enabled())
+      throw new IllegalStateException("Resolve the active run before changing its contact plan");
+    store.atomic(
+        () -> {
+          store.save(plan);
+          event(
+              "INFO",
+              plan.enabled()
+                  ? "Simulated contact windows enabled for " + plan.station()
+                  : "Continuous contact restored",
+              null,
+              null);
+        });
+    telemetry = null; // An old measurement cannot authorize commands after a link policy change.
+    link.contactAllowed(contacts().open());
+    return contacts();
   }
 
   private Run run(UUID id) {
@@ -71,20 +117,94 @@ public class GroundEngine {
   }
 
   public synchronized Run start(UUID id) {
+    return start(id, "OBSERVATION-001", null, null, null);
+  }
+
+  public synchronized Run start(
+      UUID id, String procedureId, Integer version, Long notBefore, Long expiresAt) {
+    if (id == null) throw new IllegalArgumentException("requestId is required");
     Run existing = store.run(id);
     if (existing != null) return existing;
-    if (active() != null)
-      throw new IllegalStateException("The instrument is reserved by an active procedure");
-    if (!link.connected()) throw new IllegalStateException("Spacecraft link is disconnected");
-    String failure = Models.precondition(CommandKind.POWER_ON, telemetry, now());
-    if (failure != null) throw new IllegalStateException(failure);
+    Procedure definition =
+        definition(procedureId == null ? "OBSERVATION-001" : procedureId, version);
     Run r = new Run(id, now());
+    r.definition = definition;
+    r.procedure = definition.id();
+    r.version = definition.version();
+    if (notBefore != null) {
+      if (expiresAt == null
+          || notBefore < now() - 5000
+          || notBefore > now() + 604_800_000L
+          || expiresAt <= Math.max(notBefore, now())
+          || expiresAt - notBefore > 86_400_000L)
+        throw new IllegalArgumentException(
+            "Choose a start within seven days and a start deadline within 24 hours");
+      if (store.scheduledRuns().size() >= 50)
+        throw new IllegalStateException("The schedule holds at most 50 pending runs");
+      r.status = RunStatus.SCHEDULED;
+      r.notBefore = notBefore;
+      r.expiresAt = expiresAt;
+      r.reason = "Waiting for scheduled time, contact and telemetry guards";
+    } else {
+      if (expiresAt != null)
+        throw new IllegalArgumentException("A start deadline requires a scheduled start");
+      if (active() != null)
+        throw new IllegalStateException("The instrument is reserved by an active procedure");
+      if (!contacts().open()) throw new IllegalStateException("Outside a simulated contact window");
+      if (!link.connected()) throw new IllegalStateException("Spacecraft link is disconnected");
+      String failure = Models.precondition(definition.steps().getFirst(), telemetry, now());
+      if (failure != null) throw new IllegalStateException(failure);
+    }
     store.atomic(
         () -> {
           store.save(r);
-          event("INFO", "Observation procedure v1 started", r, null);
+          event(
+              "INFO",
+              definition.name()
+                  + " v"
+                  + definition.version()
+                  + (r.status == RunStatus.SCHEDULED ? " scheduled" : " started"),
+              r,
+              null);
         });
     return r;
+  }
+
+  private void advanceSchedule() {
+    for (Run waiting : store.scheduledRuns()) {
+      if (now() >= waiting.expiresAt) {
+        waiting.status = RunStatus.FAILED;
+        waiting.reason = "Start deadline expired; no commands were transmitted";
+        store.atomic(
+            () -> {
+              store.save(waiting);
+              event("WARN", waiting.reason, waiting, null);
+            });
+      }
+    }
+    if (active() != null
+        || !contacts().open()
+        || !link.connected()
+        || !Models.fresh(telemetry, now())) return;
+    for (Run waiting : store.scheduledRuns()) {
+      if (now() < waiting.notBefore) continue;
+      String failure = Models.precondition(waiting.definition.steps().getFirst(), telemetry, now());
+      if (failure != null) {
+        if (!failure.equals(waiting.reason)) {
+          waiting.reason = failure;
+          store.save(waiting);
+        }
+        continue;
+      }
+      waiting.status = RunStatus.RUNNING;
+      waiting.reason = "Scheduled run activated with fresh telemetry and contact";
+      store.atomic(
+          () -> {
+            store.save(waiting);
+            event("INFO", waiting.reason, waiting, null);
+          });
+      break;
+    }
   }
 
   public synchronized void action(UUID id, String action) {
@@ -108,7 +228,7 @@ public class GroundEngine {
                 throw new IllegalStateException("Only a paused procedure can be resumed");
               if (c != null && c.status == CommandStatus.UNKNOWN)
                 throw new IllegalStateException("Reconcile the unknown command before resuming");
-              if (!link.connected() || !Models.fresh(telemetry, now()))
+              if (!contacts().open() || !link.connected() || !Models.fresh(telemetry, now()))
                 throw new IllegalStateException("A live link and fresh telemetry are required");
               r.status = RunStatus.RUNNING;
               r.reason = "Operator resumed execution";
@@ -123,7 +243,7 @@ public class GroundEngine {
               r.reason =
                   r.status == RunStatus.ABORTING
                       ? "No further steps. Waiting for the in-flight outcome; instrument state is"
-                            + " unchanged."
+                          + " unchanged."
                       : "Aborted. Previously executed actions are not undone.";
             }
             default -> throw new IllegalArgumentException("Unknown action");
@@ -138,7 +258,8 @@ public class GroundEngine {
     Command c = r.commandId == null ? null : store.command(r.commandId);
     if (c == null || c.resolved())
       throw new IllegalStateException("No unresolved command to reconcile");
-    if (!link.connected()) throw new IllegalStateException("Spacecraft link is disconnected");
+    if (!contacts().open() || !link.connected())
+      throw new IllegalStateException("Wait for a live contact window before querying");
     if (now() - lastQuery < 1000)
       throw new IllegalStateException("Wait one second between status queries");
     lastQuery = now();
@@ -147,16 +268,21 @@ public class GroundEngine {
   }
 
   public synchronized void tick() {
+    link.contactAllowed(contacts().open());
+    advanceSchedule();
     Run r = active();
     if (r == null) return;
     Command c = r.commandId == null ? null : store.command(r.commandId);
     if (c != null
         && (c.status == CommandStatus.SENT || c.status == CommandStatus.ACCEPTED)
-        && now() - c.sentAt > 12000) {
+        && now() - c.sentAt > c.timeoutSeconds * 1000L) {
       store.atomic(
           () -> {
             c.status = CommandStatus.UNKNOWN;
-            c.reason = "Completion was not verified within 12 seconds; execution may have occurred";
+            c.reason =
+                "Completion was not verified within "
+                    + c.timeoutSeconds
+                    + " seconds; execution may have occurred";
             c.updatedAt = now();
             store.save(c);
             if (r.status != RunStatus.ABORTING) r.status = RunStatus.PAUSED;
@@ -188,9 +314,9 @@ public class GroundEngine {
               r.step++;
               r.commandId = null;
               r.reason = "Step verified; evaluating next step";
-              if (r.step == Models.PROCEDURE.size()) {
+              if (r.step == r.definition.steps().size()) {
                 r.status = RunStatus.COMPLETED;
-                r.reason = "Observation stored and instrument powered off";
+                r.reason = "Procedure verified and instrument powered off";
                 event("SUCCESS", r.reason, r, c);
               }
             }
@@ -199,11 +325,14 @@ public class GroundEngine {
       return;
     }
     if (c != null && c.status != CommandStatus.QUEUED) return;
-    CommandKind kind = Models.PROCEDURE.get(r.step);
+    Step step = r.definition.steps().get(r.step);
+    CommandKind kind = step.kind();
     String failure =
-        !link.connected()
-            ? "Spacecraft link is disconnected"
-            : Models.precondition(kind, telemetry, now());
+        !contacts().open()
+            ? "Contact window closed; resume after communication returns"
+            : !link.connected()
+                ? "Spacecraft link is disconnected"
+                : Models.precondition(step, telemetry, now());
     if (failure != null) {
       store.atomic(
           () -> {
@@ -215,6 +344,9 @@ public class GroundEngine {
       return;
     }
     Command outgoing = c == null ? new Command(UUID.randomUUID(), r.id, kind, now()) : c;
+    outgoing.stepIndex = r.step;
+    outgoing.durationSeconds = step.durationSeconds();
+    outgoing.timeoutSeconds = step.timeoutSeconds();
     store.atomic(
         () -> {
           store.save(outgoing);
@@ -233,8 +365,14 @@ public class GroundEngine {
           store.save(outgoing);
           event("INFO", kind + " dispatched", r, outgoing);
         });
+    if (!contacts().open()) {
+      link.contactAllowed(false);
+      return;
+    }
     link.send(
         Map.of(
+            "durationSeconds",
+            outgoing.durationSeconds,
             "version",
             1,
             "type",
@@ -246,6 +384,7 @@ public class GroundEngine {
   }
 
   public synchronized void receive(JsonNode n) {
+    if (!contacts().open()) return;
     if ("TELEMETRY".equals(n.path("type").asText())) {
       String boot = n.path("bootId").asText();
       long sequence = n.path("sequence").asLong(-1);
@@ -316,8 +455,9 @@ public class GroundEngine {
   }
 
   public synchronized void fault(String mode) {
-    if (!Set.of("NONE", "DROP_COMPLETION", "STALE_TELEMETRY", "LOW_BATTERY", "REJECT_CAPTURE")
-        .contains(mode)) throw new IllegalArgumentException("Unsupported scenario");
+    if (mode == null
+        || !Set.of("NONE", "DROP_COMPLETION", "STALE_TELEMETRY", "LOW_BATTERY", "REJECT_CAPTURE")
+            .contains(mode)) throw new IllegalArgumentException("Unsupported scenario");
     if (!link.connected()) throw new IllegalStateException("Spacecraft link is disconnected");
     link.send(Map.of("version", 1, "type", "FAULT", "mode", mode));
     event("WARN", "Scenario requested: " + mode, active(), null);
@@ -325,10 +465,15 @@ public class GroundEngine {
 
   public synchronized Map<String, Object> snapshot() {
     Run r = active();
-    if (r == null) r = store.runs().stream().findFirst().orElse(null);
+    if (r == null)
+      r =
+          store.runs().stream()
+              .filter(run -> run.status != RunStatus.SCHEDULED)
+              .findFirst()
+              .orElse(null);
     var m = new LinkedHashMap<String, Object>();
-    m.put("connected", link.connected());
-    m.put("fresh", Models.fresh(telemetry, now()));
+    m.put("connected", contacts().open() && link.connected());
+    m.put("fresh", contacts().open() && Models.fresh(telemetry, now()));
     m.put("now", now());
     m.put("telemetry", telemetry);
     m.put("run", r);
@@ -336,6 +481,12 @@ public class GroundEngine {
     m.put("events", store.events(null));
     m.put("samples", store.samples());
     m.put("runs", store.runs());
+    var procedures = new ArrayList<>(store.procedures());
+    if (procedures.stream().noneMatch(p -> p.id().equals("OBSERVATION-001") && p.version() == 1))
+      procedures.add(Models.defaultProcedure());
+    m.put("procedures", procedures);
+    m.put("contacts", contacts());
+    m.put("scheduled", store.scheduledRuns());
     return m;
   }
 }

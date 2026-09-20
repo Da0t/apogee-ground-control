@@ -71,4 +71,19 @@ class SpacecraftTest {
     craft.command(id, "POWER_ON");
     assertThrows(IllegalArgumentException.class, () -> craft.command(id, "CAPTURE"));
   }
+
+  @Test
+  void collectionDurationIsPersistedAndPartOfCommandIdentity() throws Exception {
+    ready();
+    String id = UUID.randomUUID().toString();
+    craft.command(id, "CAPTURE", 3);
+    craft.tick();
+    craft = new Spacecraft(directory.resolve("state.json"));
+    assertThrows(IllegalArgumentException.class, () -> craft.command(id, "CAPTURE", 4));
+    craft.tick();
+    assertEquals("ACCEPTED", craft.query(id).get("status"));
+    craft.tick();
+    assertEquals("COMPLETED", craft.command(id, "CAPTURE", 3).get("status"));
+    assertEquals(1, craft.state().observations);
+  }
 }

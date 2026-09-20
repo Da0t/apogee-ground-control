@@ -49,6 +49,8 @@ class TestRig {
     Map<UUID, Command> commands = new LinkedHashMap<>();
     List<Event> events = new ArrayList<>();
     List<Telemetry> samples = new ArrayList<>();
+    Map<String, Procedure> definitions = new LinkedHashMap<>();
+    Contacts.Plan plan = Contacts.defaultPlan();
 
     <T> T copy(T value, Class<T> cls) {
       return Wire.JSON.convertValue(value, cls);
@@ -99,6 +101,46 @@ class TestRig {
 
     public List<Telemetry> samples() {
       return samples;
+    }
+
+    public List<Procedure> procedures() {
+      return new ArrayList<>(definitions.values());
+    }
+
+    public Procedure procedure(String id, Integer version) {
+      return definitions.values().stream()
+          .filter(p -> p.id().equals(id) && (version == null || p.version() == version))
+          .max(Comparator.comparingInt(Procedure::version))
+          .orElse(null);
+    }
+
+    public void save(Procedure p) {
+      definitions.put(p.id() + ":" + p.version(), p);
+    }
+
+    public Contacts.Plan contactPlan() {
+      return plan;
+    }
+
+    public void save(Contacts.Plan p) {
+      plan = p;
+    }
+
+    public Run activeRun() {
+      return runs().stream()
+          .filter(
+              r ->
+                  Set.of(RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.ABORTING)
+                      .contains(r.status))
+          .findFirst()
+          .orElse(null);
+    }
+
+    public List<Run> scheduledRuns() {
+      return runs().stream()
+          .filter(r -> r.status == RunStatus.SCHEDULED)
+          .sorted(Comparator.comparingLong(r -> r.notBefore))
+          .toList();
     }
   }
 

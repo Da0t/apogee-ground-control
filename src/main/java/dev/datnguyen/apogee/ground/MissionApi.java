@@ -49,14 +49,38 @@ public class MissionApi {
     return e;
   }
 
-  public record StartRequest(UUID requestId) {}
+  public record StartRequest(
+      UUID requestId, String procedureId, Integer version, Long notBefore, Long expiresAt) {}
+
+  public record ProcedureRequest(
+      String id, int baseVersion, String name, String description, List<Models.Step> steps) {}
+
+  @PostMapping("/procedures")
+  public Models.Procedure publish(@RequestBody ProcedureRequest request) {
+    return engine.publish(
+        request.id(),
+        request.baseVersion(),
+        request.name(),
+        request.description(),
+        request.steps());
+  }
+
+  @PostMapping("/contacts")
+  public Contacts.Status contacts(@RequestBody Contacts.Plan plan) {
+    return engine.configureContacts(plan);
+  }
 
   public record FaultRequest(String mode) {}
 
   @PostMapping("/runs")
   public Models.Run start(@RequestBody StartRequest request) {
     if (request.requestId() == null) throw new IllegalArgumentException("requestId is required");
-    return engine.start(request.requestId());
+    return engine.start(
+        request.requestId(),
+        request.procedureId(),
+        request.version(),
+        request.notBefore(),
+        request.expiresAt());
   }
 
   @PostMapping("/runs/{id}/{action}")

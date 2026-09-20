@@ -154,6 +154,11 @@ p {
   margin: 30px 12px 13px;
 }
 .nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  font-weight: 550;
   border: 0;
   background: none;
   width: 100%;
@@ -909,6 +914,478 @@ footer span:first-child {
   font-size: 13px;
   line-height: 1.8;
   color: #bababa;
+}
+
+.nav:hover {
+  background: #202020;
+}
+.procedure-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 10px;
+}
+input,
+select,
+textarea {
+  color: #e8e8e8;
+  background: #191919;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  padding: 9px 10px;
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+}
+input:disabled,
+select:disabled {
+  opacity: 0.5;
+}
+textarea {
+  resize: vertical;
+}
+input[type="range"] {
+  padding: 0;
+}
+label {
+  font-size: 11px;
+  color: #a6a6a6;
+}
+.contact-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 17px;
+  border: 1px solid #383838;
+  border-radius: 7px;
+  background: #141414;
+  font-size: 11px;
+  margin-bottom: 22px;
+}
+.contact-banner strong {
+  font-weight: 500;
+  color: #eee;
+}
+.contact-banner a {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.procedure-library {
+  display: grid;
+  grid-template-columns: 295px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.library-toolbar {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.library-toolbar button {
+  width: 100%;
+}
+.library-row {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 18px 15px;
+  text-align: left;
+  justify-content: flex-start;
+}
+.library-row.selected {
+  background: #242424;
+}
+.library-row strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.library-row small {
+  display: block;
+  font-size: 8px;
+  margin-top: 6px;
+}
+.library-row .status {
+  margin-left: auto;
+}
+.library-icon {
+  color: #aaa;
+  margin-right: 5px;
+}
+.library-note {
+  padding: 21px 18px;
+  font-size: 11px;
+  color: #aaa;
+  line-height: 1.8;
+}
+.library-note strong {
+  color: #ddd;
+  font-weight: 500;
+}
+.library-note p {
+  margin-top: 6px;
+}
+.editor-fields,
+.form-body {
+  padding: 20px;
+  display: grid;
+  gap: 17px;
+}
+.editor-fields label,
+.form-body label,
+.step-fields label {
+  display: grid;
+  gap: 7px;
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+.editor-step-heading {
+  display: flex;
+  gap: 15px;
+  justify-content: space-between;
+  padding: 18px 20px 4px;
+  border-top: 1px solid var(--border);
+}
+.editor-step-heading small {
+  font-size: 9px;
+}
+.editable-steps {
+  padding: 8px 20px 0;
+}
+.editable-step {
+  min-width: 0;
+  margin: 12px 0 16px;
+  padding: 15px;
+  border: 1px solid #353535;
+  border-radius: 7px;
+}
+.editable-step legend {
+  padding: 0 7px;
+  font:
+    9px "IBM Plex Mono",
+    monospace;
+  text-transform: uppercase;
+  color: #a5a5a5;
+}
+.step-edit-top {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.step-edit-top > select {
+  font-size: 11px;
+  flex: 1;
+}
+.step-tools {
+  display: flex;
+  gap: 4px;
+}
+.step-tools button {
+  padding: 7px;
+}
+.step-fields {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 17px;
+}
+.step-fields label {
+  font-size: 9px;
+}
+.step-fields input {
+  font:
+    11px "IBM Plex Mono",
+    monospace;
+}
+.editor-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px 20px;
+}
+.editor-actions span {
+  color: #888;
+  font-size: 10px;
+}
+.editor-footer {
+  padding: 20px;
+  border-top: 1px solid var(--border);
+}
+.editor-footer p,
+.form-body p {
+  color: #929292;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.editor-footer > div {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+.publish-notice {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 15px 20px;
+  padding: 14px;
+  background: #232323;
+  border: 1px solid #484848;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.contact-summary {
+  display: flex;
+  align-items: center;
+  gap: 55px;
+  margin-bottom: 25px;
+  padding: 0 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+.contact-summary strong {
+  display: block;
+  font-size: 19px;
+  font-weight: 450;
+  margin-top: 10px;
+}
+.model-label {
+  margin-left: auto;
+  font:
+    9px "IBM Plex Mono",
+    monospace;
+  color: #999;
+  text-align: right;
+}
+.contact-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+.globe-frame {
+  max-width: 640px;
+  margin: auto;
+  padding: 5px 20px 0;
+}
+.earth-globe {
+  display: block;
+  width: 100%;
+  max-height: 435px;
+  cursor: grab;
+  touch-action: pan-y;
+}
+.earth-globe:active {
+  cursor: grabbing;
+}
+.globe-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 10px 18px;
+  font:
+    10px "IBM Plex Mono",
+    monospace;
+}
+.globe-controls small {
+  display: block;
+  font:
+    9px "DM Sans",
+    sans-serif;
+  margin-top: 5px;
+}
+.globe-controls > div {
+  display: flex;
+  gap: 5px;
+}
+.globe-controls button {
+  padding: 7px;
+}
+.globe-note {
+  padding: 13px 20px;
+  border-top: 1px solid var(--border);
+  color: #999;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.contact-form .form-body {
+  gap: 15px;
+}
+.contact-form .form-body > small {
+  font-size: 10px;
+  line-height: 1.6;
+}
+.contact-windows {
+  margin-top: 22px;
+}
+.window-cards {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+.window-card {
+  padding: 19px 15px;
+  border-right: 1px solid var(--border);
+}
+.window-card:last-child {
+  border-right: 0;
+}
+.window-card.current {
+  background: #222;
+}
+.window-card strong {
+  display: block;
+  font:
+    10px "IBM Plex Mono",
+    monospace;
+  margin: 13px 0;
+  white-space: nowrap;
+}
+.window-card small {
+  font-size: 8px;
+}
+.window-bar {
+  height: 4px;
+  border-radius: 3px;
+  background: #333;
+  margin-bottom: 9px;
+  overflow: hidden;
+}
+.window-bar i {
+  display: block;
+  height: 100%;
+  background: #eee;
+}
+.schedule-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 22px;
+  margin-top: 22px;
+  align-items: start;
+}
+.scheduled-row {
+  padding: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.scheduled-row > div {
+  min-width: 0;
+  flex: 1;
+}
+.scheduled-row strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.scheduled-row small {
+  display: block;
+  margin-top: 8px;
+  font-size: 10px;
+}
+.scheduled-row p {
+  color: #999;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-top: 7px;
+}
+.status.scheduled {
+  background: #242424;
+  color: #ccc;
+  border-color: #555;
+}
+@media (max-width: 1150px) {
+  .procedure-library {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+  .step-fields {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .contact-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 1fr);
+  }
+  .window-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .window-card {
+    border-bottom: 1px solid var(--border);
+  }
+  .contact-summary {
+    gap: 25px;
+    flex-wrap: wrap;
+  }
+  .model-label {
+    margin-left: 0;
+  }
+}
+@media (max-width: 850px) {
+  .procedure-library,
+  .contact-layout,
+  .schedule-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-list {
+    max-height: 280px;
+    overflow: auto;
+  }
+  .library-note {
+    display: none;
+  }
+  .contact-banner {
+    flex-wrap: wrap;
+  }
+  .contact-banner a {
+    margin-left: 0;
+  }
+}
+@media (max-width: 520px) {
+  .field-grid,
+  .step-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+  .step-edit-top {
+    flex-wrap: wrap;
+  }
+  .step-edit-top > select {
+    flex-basis: 100%;
+  }
+  .editor-step-heading {
+    flex-wrap: wrap;
+  }
+  .editor-fields,
+  .form-body,
+  .editor-footer {
+    padding: 15px;
+  }
+  .editable-steps {
+    padding: 4px 15px 0;
+  }
+  .editor-footer > div {
+    flex-direction: column;
+  }
+  .window-cards {
+    grid-template-columns: 1fr;
+  }
+  .contact-summary {
+    gap: 22px;
+  }
+  .contact-summary strong {
+    font-size: 16px;
+  }
+  .globe-frame {
+    padding: 0 5px;
+  }
+  .globe-controls {
+    flex-wrap: wrap;
+  }
+  .earth-globe {
+    min-height: 250px;
+  }
 }
 .modal ol {
   padding-left: 18px;

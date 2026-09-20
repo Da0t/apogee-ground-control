@@ -25,4 +25,18 @@ public interface MissionStore {
   void telemetry(Telemetry telemetry);
 
   List<Telemetry> samples();
+
+  List<Procedure> procedures();
+
+  Procedure procedure(String id, Integer version);
+
+  void save(Procedure procedure);
+
+  Contacts.Plan contactPlan();
+
+  void save(Contacts.Plan plan);
+
+  Run activeRun();
+
+  List<Run> scheduledRuns();
 }

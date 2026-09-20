@@ -30,7 +30,9 @@ class PostgresIntegrationTest {
             postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     Flyway.configure().dataSource(source).load().migrate();
     db = new JdbcTemplate(source);
-    db.execute("TRUNCATE commands,runs,events,telemetry RESTART IDENTITY CASCADE");
+    db.execute(
+        "TRUNCATE commands,runs,events,telemetry,procedures,mission_settings RESTART IDENTITY"
+            + " CASCADE");
     store =
         new PostgresStore(db, new TransactionTemplate(new DataSourceTransactionManager(source)));
   }
@@ -71,5 +73,27 @@ class PostgresIntegrationTest {
                 }));
     assertEquals(1, store.runs().size());
     assertTrue(store.events(null).isEmpty());
+  }
+
+  @Test
+  void versionsAndContactPlanAreDurableAndPublishedVersionsAreImmutable() {
+    var p = Models.defaultProcedure();
+    store.save(p);
+    assertThrows(Exception.class, () -> store.save(p));
+    var plan = new Contacts.Plan(true, 100000, 30, 8, "ALPHA", 34, -118);
+    store.save(plan);
+    assertEquals(p, store.procedure(p.id(), 1));
+    assertEquals(plan, store.contactPlan());
+    var run = new Run(UUID.randomUUID(), 1000);
+    run.status = RunStatus.SCHEDULED;
+    run.notBefore = 2000;
+    run.expiresAt = 10000;
+    run.definition = p;
+    store.save(run);
+    assertEquals(p, store.scheduledRuns().getFirst().definition);
+    assertNull(store.activeRun());
+    run.status = RunStatus.RUNNING;
+    store.save(run);
+    assertEquals(run.id, store.activeRun().id);
   }
 }

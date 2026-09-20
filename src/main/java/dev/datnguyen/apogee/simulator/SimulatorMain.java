@@ -68,7 +68,9 @@ public class SimulatorMain {
                             Wire.write(
                                 s.getOutputStream(),
                                 craft.command(
-                                    n.path("commandId").asText(), n.path("kind").asText()));
+                                    n.path("commandId").asText(),
+                                    n.path("kind").asText(),
+                                    n.path("durationSeconds").asInt(0)));
                         case "QUERY" ->
                             Wire.write(
                                 s.getOutputStream(), craft.query(n.path("commandId").asText()));

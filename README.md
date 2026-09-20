@@ -1,6 +1,6 @@
 # Apogee · Spacecraft Ground Control
 
-A Java ground-control simulator for executing an observation procedure, monitoring synthetic spacecraft telemetry, and reconciling command outcomes after communication failures.
+A Java ground-control simulator for publishing versioned procedures, scheduling them around simulated contact windows, monitoring spacecraft telemetry, and reconciling uncertain command outcomes.
 
 **Requested ≠ accepted ≠ completed.** An acknowledgment can disappear after the spacecraft has executed an action. Apogee preserves that uncertainty, queries the spacecraft's durable command ledger, and lets the operator decide when to resume.
 
@@ -40,12 +40,25 @@ Apply **Nominal conditions** between experiments to clear faults and restore ill
 
 Other scenarios: low battery, frozen telemetry, instrument rejection, and a 15-second connection interruption. To demonstrate process recovery, restart only the ground service during collection: `./scripts/compose.sh restart ground`. The simulator continues independently; recovered in-flight commands become UNKNOWN and require reconciliation.
 
+## Mission workspace
+
+- **Mission Console** (`/console`): satellite schematic, live telemetry, execution controls and command evidence.
+- **Procedures** (`/procedures`): publish immutable definitions with 2–8 typed steps, collection durations, verification deadlines and telemetry guards. New runs can select a specific version; existing runs keep their snapshot.
+- **Contact Planning** (`/contacts`): rotate an offline globe, configure accelerated communication windows, schedule a procedure and inspect pending runs. The TCP connection closes outside enabled windows while the separate spacecraft continues executing.
+- **Run History** (`/history`): inspect execution evidence and export the complete saved procedure definition with the run.
+
+All four URLs support direct loading, refresh and browser back/forward. The globe uses bundled [Natural Earth coastline data](web/NOTICE.md); spacecraft positions and station contact windows are synthetic. Latitude/longitude change the diagram, not a radio-visibility calculation. Continuous contact is the default.
+
+![Apogee contact planning and interactive globe](docs/contacts.png)
+
+For a contact-loss demonstration, save a procedure with a 10-second collection and a 12-second verification deadline. Configure a 30-second cycle with 8 seconds of contact beginning in 5 seconds, then schedule that saved version to start immediately. Its collection finishes during the blackout. Once contact returns, reconcile the UNKNOWN outcome and explicitly resume to power off. No command is automatically resent. Restore continuous contact when finished.
+
 ## What is real and what is simulated?
 
 | Real software behavior | Illustrative model |
 | --- | --- |
 | Two independent Java processes exchanging framed messages over TCP | Battery starts at 82%; standby adds 0.04 percentage points/tick, active instrument uses 0.08/tick |
-| PostgreSQL transactions, schema migration, persisted run/command/event records | Observation takes six 1-second ticks and consumes 20 percentage points of storage |
+| PostgreSQL transactions, schema migration, persisted run/command/event records | Collection takes 2–20 one-second ticks (six by default) and consumes 20 percentage points of storage |
 | Timeouts, disconnects, duplicate IDs, process restarts and status reconciliation | Instrument states OFF / READY / COLLECTING; no image pixels or physical payload |
 | React console receiving server-sent events | Solar panels and spacecraft drawing are an explanatory schematic |
 
@@ -65,7 +78,7 @@ flowchart LR
 - Java 21 target; Spring Boot 3.5.16; JDBC, Flyway and PostgreSQL 17.
 - React/TypeScript/Vite; all application and font assets served by Spring Boot.
 - A plain-Java domain engine accepts a clock, store and link interface. It does not depend on Spring.
-- A procedure v1 contains three typed commands. One active run reserves the instrument, including while paused or aborting.
+- The initial procedure has three commands; published definitions support 2–8 validated steps. One active run reserves the instrument, including while paused or aborting. Scheduled runs acquire that reservation only on activation.
 - Command intent and execution history are committed before a socket send. The network and database are not assumed to share a transaction.
 - Completed commands cannot regress when a late acceptance message arrives. UNKNOWN is not automatically retried.
 
@@ -108,13 +121,13 @@ Tests fail if Docker is unavailable; database tests are not silently skipped. Gi
 
 ## Boundaries
 
-- One ground-service instance, one spacecraft and one fixed procedure version. No distributed leader election or arbitrary script execution.
+- One ground-service instance and one spacecraft. Definitions are linear typed steps; no arbitrary scripts, branching or distributed leader election. At most 50 pending runs; schedules start within seven days with a start deadline at most 24 hours after their earliest start.
 - Localhost-only published ports and cross-origin browser mutation rejection. No user authentication/RBAC; do not expose it to a public network.
-- Recent console history: 100 runs and 250 events; individual runs remain addressable by UUID. Telemetry retains approximately one hour; charts show the latest 90 samples. Run/command/event records are not automatically deleted.
+- Recent console history: 100 runs, 300 procedure versions and 250 events; individual runs remain addressable by UUID. Telemetry retains approximately one hour; charts show the latest 90 samples. Run/command/event records are not automatically deleted.
 - The simulator ledger retains at most 10,000 command IDs. Duplicate suppression holds while its snapshot survives. It is not an unconditional exactly-once guarantee.
 - Snapshot writes support ordinary process-restart recovery. No claim is made about power-loss durability across all filesystems or disk failure.
 - Abort does not undo an executed command or automatically power off an instrument. Unresolved in-flight outcomes retain the reservation until reconciled.
-- The current model has no orbit propagation, real downlink image pipeline, thermal model, or autonomous safe-mode recovery. These are optional future work, not implemented features.
+- The contact cycle is explicitly configured and accelerated; there is no orbit propagation, RF visibility calculation, real downlink image pipeline, thermal model, or autonomous safe-mode recovery. These are optional future work, not implemented features.
 
 ## Why this project
 

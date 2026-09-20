@@ -51,6 +51,16 @@ REST accepts actions; SSE publishes a full snapshot every second. Full snapshots
 
 The frontend records no authoritative mission state. PostgreSQL history survives browser reload and ground restart. Event replay scrubs the recorded event sequence, not the simulator's physical state. Export includes run, commands, and up to 250 recorded events.
 
+## Versioned procedures and scheduling
+
+A procedure is an immutable `(id, version)` record. Publishing uses the caller's base version to reject stale revisions; a database primary key prevents overwriting a published version. Each run embeds its definition at creation, including when scheduled, so editing a definition cannot change an existing execution. Steps include command kind, execution duration, verification timeout and battery/storage guards. The validator restricts definitions to 2–8 typed commands, ordered power transitions and stronger-than-minimum safety guards. It executes no user code.
+
+`SCHEDULED` runs do not hold the instrument. The engine first expires missed start deadlines, then activates at most one eligible run ordered by earliest start, creation time and ID. Activation requires an available instrument, permitted contact, a live TCP connection, fresh telemetry and the first step's guards. Guards are checked again at every dispatch. A start deadline limits when execution can begin; it is not a deadline for finishing an in-flight command. Queued runs survive backend restarts. Cancelling one sends no commands.
+
+Contact policy is a durable repeating cycle with an epoch, period and open duration. Windows have inclusive starts and exclusive ends. The single engine writer updates the TCP adapter every 250 ms; the adapter closes its socket outside contact and pauses reconnects. The engine also checks the current window before dispatch and drops messages racing with a window closure. Work already accepted by the spacecraft continues there. Missing outcomes retain the same UNKNOWN/reconcile/manual-resume rules. Reopening contact does not automatically resume a paused run. An operator may restore continuous contact to recover an uncertain run.
+
+The globe renders a synthetic great-circle surface track whose phase comes from the same persisted cycle. It is explanatory geometry; station coordinates do not derive the link policy and no orbital elements or RF model are used. Natural Earth outlines are bundled locally. Page routes are handled by a small SPA navigation layer with a Spring index fallback for the four explicit paths.
+
 ## Tradeoffs and follow-ons
 
-Version 1 makes concurrency, persistence and command uncertainty visible without adding brokers, Kubernetes or orbital mechanics. Natural next improvements are a versioned procedure DSL, database-backed simulator state, bounded asynchronous network writes, stronger clock/freshness modeling, auth for multi-user operation, and scheduler contact-window integration. Each needs its own requirement and tests before implementation.
+The current implementation makes concurrency, persistence and command uncertainty visible without brokers or orbital mechanics. Further work could add telemetry alarm lifecycles, database-backed simulator state, bounded asynchronous network writes, stronger clock/freshness modeling, auth for multi-user operation, or physically derived contact windows. The original mission-scheduler repository is not integrated or modified by this change.

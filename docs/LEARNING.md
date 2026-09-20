@@ -24,6 +24,9 @@ Use **spacecraft ground-control simulator**, not flight software, operational sa
 - Why can a paused or aborted procedure still have a command executing?
 - What happens if the simulator loses its entire ledger? Which guarantee no longer holds?
 - How does Java's type system help restrict valid commands, and where is runtime validation still needed?
+- Why must a scheduled run retain a procedure snapshot when a new version is published?
+- Why does a scheduled run not reserve the instrument until activation?
+- What does the contact globe explain, and why is it not an orbit predictor?
 - Why use SSE for this console rather than WebSockets?
 - Why does this prototype use one synchronized writer? What would need to change for multiple ground instances?
 - Why does a deterministic simulator not imply a real-time/physically accurate spacecraft model?
@@ -40,4 +43,4 @@ The core value of Java here is typed domain modeling, encapsulation, library sup
 - Implemented reconciliation for uncertain command outcomes and durable simulator deduplication; tested communication faults and process-restart recovery.
 - Developed a React/TypeScript operator console with live telemetry, procedure controls and exportable event history.
 
-Only add performance numbers after a documented benchmark. The project currently makes no throughput or recovery-latency claims. Keep C++ off this project's stack. Future scheduler integration should be described only after it exists.
+Only add performance numbers after a documented benchmark. The project currently makes no throughput or recovery-latency claims. Keep C++ off this project's stack. The new internal contact planner uses synthetic cycles; do not describe it as integration with the separate mission-scheduler project or as orbital prediction.

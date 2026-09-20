@@ -14,6 +14,7 @@ public class Spacecraft {
   public static class Entry {
     public String kind, status, reason;
     public long dueTick;
+    public int durationSeconds;
 
     public Entry() {}
 
@@ -64,12 +65,22 @@ public class Spacecraft {
   }
 
   public synchronized Map<String, Object> command(String id, String kind) throws IOException {
+    return command(id, kind, 0);
+  }
+
+  public synchronized Map<String, Object> command(String id, String kind, int duration)
+      throws IOException {
     UUID.fromString(id);
     CommandKind k = CommandKind.valueOf(kind);
+    int seconds = duration == 0 ? (k == CommandKind.CAPTURE ? 6 : 2) : duration;
+    if (seconds < 2 || seconds > 20 || (k != CommandKind.CAPTURE && seconds != 2))
+      throw new IllegalArgumentException("Invalid command duration");
     Entry old = state.ledger.get(id);
     if (old != null) {
-      if (!old.kind.equals(kind))
-        throw new IllegalArgumentException("Command ID reused with different kind");
+      int oldSeconds =
+          old.durationSeconds == 0 ? (old.kind.equals("CAPTURE") ? 6 : 2) : old.durationSeconds;
+      if (!old.kind.equals(kind) || oldSeconds != seconds)
+        throw new IllegalArgumentException("Command ID reused with different arguments");
       return ack(id, old);
     }
     if (state.ledger.size() >= 10000)
@@ -90,7 +101,8 @@ public class Spacecraft {
             kind,
             rejected == null ? "ACCEPTED" : "REJECTED",
             rejected == null ? "Accepted by spacecraft" : rejected,
-            state.tick + (k == CommandKind.CAPTURE ? 6 : 2));
+            state.tick + seconds);
+    entry.durationSeconds = seconds;
     state.ledger.put(id, entry);
     if (rejected == null && k == CommandKind.CAPTURE) state.instrument = "COLLECTING";
     save();

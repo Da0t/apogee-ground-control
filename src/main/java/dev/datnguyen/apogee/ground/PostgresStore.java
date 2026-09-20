@@ -134,4 +134,66 @@ public class PostgresStore implements MissionStore {
             + " 90) recent ORDER BY sequence",
         (r, i) -> read(r.getString(1), Telemetry.class));
   }
+
+  public List<Procedure> procedures() {
+    return db.query(
+        "SELECT document FROM procedures ORDER BY created_at DESC,id,version DESC LIMIT 300",
+        (r, i) -> read(r.getString(1), Procedure.class));
+  }
+
+  public Procedure procedure(String id, Integer version) {
+    return db
+        .query(
+            "SELECT document FROM procedures WHERE id=?"
+                + (version == null ? "" : " AND version=?")
+                + " ORDER BY version DESC LIMIT 1",
+            (r, i) -> read(r.getString(1), Procedure.class),
+            version == null ? new Object[] {id} : new Object[] {id, version})
+        .stream()
+        .findFirst()
+        .orElse(null);
+  }
+
+  public void save(Procedure p) {
+    db.update(
+        "INSERT INTO procedures(id,version,created_at,document) VALUES (?,?,?,?::jsonb)",
+        p.id(),
+        p.version(),
+        p.createdAt(),
+        json(p));
+  }
+
+  public Contacts.Plan contactPlan() {
+    return db
+        .query(
+            "SELECT document FROM mission_settings WHERE id='contacts'",
+            (r, i) -> read(r.getString(1), Contacts.Plan.class))
+        .stream()
+        .findFirst()
+        .orElse(Contacts.defaultPlan());
+  }
+
+  public void save(Contacts.Plan p) {
+    db.update(
+        "INSERT INTO mission_settings VALUES ('contacts',?::jsonb) ON CONFLICT(id) DO UPDATE SET"
+            + " document=excluded.document",
+        json(p));
+  }
+
+  public Run activeRun() {
+    return db
+        .query(
+            "SELECT document FROM runs WHERE status IN ('RUNNING','PAUSED','ABORTING') LIMIT 1",
+            (r, i) -> read(r.getString(1), Run.class))
+        .stream()
+        .findFirst()
+        .orElse(null);
+  }
+
+  public List<Run> scheduledRuns() {
+    return db.query(
+        "SELECT document FROM runs WHERE status='SCHEDULED' ORDER BY"
+            + " (document->>'notBefore')::bigint,created_at,id",
+        (r, i) -> read(r.getString(1), Run.class));
+  }
 }
